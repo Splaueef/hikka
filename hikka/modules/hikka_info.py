@@ -35,7 +35,7 @@ class HikkaInfoMod(loader.Module):
             ),
             loader.ConfigValue(
                 "banner_url",
-                "https://github.com/hikariatama/assets/raw/master/hikka_banner.mp4",
+                "https://github.com/hikariatama/assets/raw/main/hikka_banner.mp4",
                 lambda: self.strings("_cfg_banner"),
                 validator=loader.validators.Link(),
             ),
@@ -155,7 +155,7 @@ class HikkaInfoMod(loader.Module):
                 else {"message": self._render_info(True)}
             ),
             "thumb": (
-                "https://github.com/Splaueef/hikka/raw/master/assets/hikka_pfp.png"
+                "https://github.com/Splaueef/hikka/raw/main/assets/hikka_pfp.png"
             ),
             "reply_markup": self._get_mark(),
         }

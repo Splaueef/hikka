@@ -604,7 +604,7 @@ class Utils(InlineUnit):
         unit_id: typing.Optional[str] = None,
         current_page: typing.Optional[int] = None,
     ) -> typing.List[typing.List[typing.Dict[str, typing.Any]]]:
-        # Based on https://github.com/pystorage/pykeyboard/blob/master/pykeyboard/inline_pagination_keyboard.py#L4
+        # Based on https://github.com/pystorage/pykeyboard/blob/main/pykeyboard/inline_pagination_keyboard.py#L4
         if current_page is None:
             current_page = self._units[unit_id]["current_index"] + 1
 

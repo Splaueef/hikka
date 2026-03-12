@@ -17,11 +17,11 @@ The development will start from scratch with a new project, which will be announ
 As of March 2025, you can apply for an early stage of alpha-testing through the official channels.  
 
 <hr>
-<h2><img src="https://github.com/hikariatama/assets/raw/master/1326-command-window-line-flat.webp" height="54" align="middle"> Installation</h2>
+<h2><img src="https://github.com/hikariatama/assets/raw/main/1326-command-window-line-flat.webp" height="54" align="middle"> Installation</h2>
 
 ### Installation page
 
-<img src="https://github.com/hikariatama/assets/raw/master/install_qr.gif" height="256">
+<img src="https://github.com/hikariatama/assets/raw/main/install_qr.gif" height="256">
 
 <a href="https://t.me/lavhostbot?start=SGlra2E"><img src="https://user-images.githubusercontent.com/36935426/167272288-85f00779-4b98-47da-8d0d-ea2c6370b979.png" height="40"></a>
 
@@ -46,7 +46,7 @@ Simply run this command out of <b>root</b> and follow the instructions of instal
 </details>
 
 <hr>
-<h2><img src="https://github.com/hikariatama/assets/raw/master/35-edit-flat.webp" height="54" align="middle"> Changes</h2>
+<h2><img src="https://github.com/hikariatama/assets/raw/main/35-edit-flat.webp" height="54" align="middle"> Changes</h2>
 
 <ul>
  <li>🆕 <b>Latest Telegram layer</b> with reactions, video stickers and other stuff</li>
@@ -58,27 +58,27 @@ Simply run this command out of <b>root</b> and follow the instructions of instal
  <li>🔁 Full <b>backward compatibility</b> with FTG, GeekTG and Dragon Userbot modules</li>
 </ul>
 <hr>
-<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/master/1312-micro-sd-card-flat.webp" height="54" align="middle"> Requirements</h2>
+<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/main/1312-micro-sd-card-flat.webp" height="54" align="middle"> Requirements</h2>
 <ul>
  <li>Python 3.8+</li>
  <li>API_ID and HASH from <a href="https://my.telegram.org/apps" color="#2594cb">Telegram</a></li>
 </ul>
 <hr>
-<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/master/680-it-developer-flat.webp" height="54" align="middle"> Documentation</h2>
+<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/main/680-it-developer-flat.webp" height="54" align="middle"> Documentation</h2>
 
 Check out <a href="https://dev.hikka.pw">dev.hikka.pw</a> for developers' documentation and <a href="https://hikka.pw">hikka.pw</a> for users' documentation<br>
 
 <hr>
-<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/master/981-consultation-flat.webp" height="54" align="middle"> <a href="https://t.me/RotKranzUK">Support</a></h2>
+<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/main/981-consultation-flat.webp" height="54" align="middle"> <a href="https://t.me/RotKranzUK">Support</a></h2>
 <hr>
-<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/master/541-hand-washing-step-12-flat.webp" height="54" align="middle"> Features</h2>
+<h2 border="none"><img src="https://github.com/hikariatama/assets/raw/main/541-hand-washing-step-12-flat.webp" height="54" align="middle"> Features</h2>
 <table>
  <tr>
   <td>
-   <img src="https://github.com/hikariatama/assets/raw/master/1286-three-3-key-flat.webp" height="32" align="middle"><b> Forms - bored of writing? Use buttons!</b>
+   <img src="https://github.com/hikariatama/assets/raw/main/1286-three-3-key-flat.webp" height="32" align="middle"><b> Forms - bored of writing? Use buttons!</b>
   </td>
   <td>
-   <img src="https://github.com/hikariatama/assets/raw/master/61-camera-flat.webp" height="32" align="middle"><b> Galleries - scroll your favorite photos in Telegram</b>
+   <img src="https://github.com/hikariatama/assets/raw/main/61-camera-flat.webp" height="32" align="middle"><b> Galleries - scroll your favorite photos in Telegram</b>
   </td>
  </tr>
  <tr>
@@ -93,10 +93,10 @@ Check out <a href="https://dev.hikka.pw">dev.hikka.pw</a> for developers' docume
 <table>
  <tr>
   <td>
-   <img src="https://github.com/hikariatama/assets/raw/master/216-arrow-5-flat.webp" height="32" align="middle"><b> Inline - share userbot with your friends</b>
+   <img src="https://github.com/hikariatama/assets/raw/main/216-arrow-5-flat.webp" height="32" align="middle"><b> Inline - share userbot with your friends</b>
   </td>
   <td>
-   <img src="https://github.com/hikariatama/assets/raw/master/1054-amazon-echo-speaker-flat.webp" height="32" align="middle"><b> Bot interactions - "No PM"? No problem. Feedback bot at your service</b>
+   <img src="https://github.com/hikariatama/assets/raw/main/1054-amazon-echo-speaker-flat.webp" height="32" align="middle"><b> Bot interactions - "No PM"? No problem. Feedback bot at your service</b>
   </td>
  </tr>
  <tr>
@@ -111,10 +111,10 @@ Check out <a href="https://dev.hikka.pw">dev.hikka.pw</a> for developers' docume
 <table>
  <tr>
   <td>
-   <img src="https://github.com/hikariatama/assets/raw/master/1140-error-flat.webp" height="32" align="middle"><b> InlineLogs - traceback directly in message, caused error</b>
+   <img src="https://github.com/hikariatama/assets/raw/main/1140-error-flat.webp" height="32" align="middle"><b> InlineLogs - traceback directly in message, caused error</b>
   </td>
   <td>
-   <img src="https://github.com/hikariatama/assets/raw/master/35-edit-flat.webp" height="32" align="middle"><b> Grep - execute command and get only required lines</b>
+   <img src="https://github.com/hikariatama/assets/raw/main/35-edit-flat.webp" height="32" align="middle"><b> Grep - execute command and get only required lines</b>
   </td>
  </tr>
  <tr>
