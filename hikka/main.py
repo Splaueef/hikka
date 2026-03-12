@@ -756,6 +756,13 @@ class Hikka:
             diff = repo.git.log([f"HEAD..origin/{version.branch}", "--oneline"])
             upd = "Update required" if diff else "Up-to-date"
 
+            # Визначаємо web_url тут, щоб він був доступний для всіх блоків нижче
+            web_url = (
+                f"🌐 Web url: {self.web.url}"
+                if self.web and hasattr(self.web, "url")
+                else ""
+            )
+
             logo = (
                 "█ █ █ █▄▀ █▄▀ ▄▀█\n"
                 "█▀█ █ █ █ █ █ █▀█\n\n"
@@ -766,11 +773,6 @@ class Hikka:
 
             if not self.omit_log:
                 print(logo)
-                web_url = (
-                    f"🌐 Web url: {self.web.url}"
-                    if self.web and hasattr(self.web, "url")
-                    else ""
-                )
                 logging.debug(
                     "\n🌘 Hikka %s #%s (%s) started\n%s",
                     ".".join(list(map(str, list(__version__)))),
