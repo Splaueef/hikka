@@ -748,9 +748,11 @@ class Hikka:
     async def _badge(self, client: CustomTelegramClient):
         """Call the badge in shell"""
         try:
-        repo = git.Repo()
+            import git
+            repo = git.Repo()  # ТУТ МАЄ БУТИ ВІДСТУП (4 пробіли)
 
-        build = utils.get_git_hash()
+            build = utils.get_git_hash()
+
         diff = repo.git.log([f"HEAD..origin/{version.branch}", "--oneline"])
         upd = "Update required" if diff else "Up-to-date"
 
