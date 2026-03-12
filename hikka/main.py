@@ -804,8 +804,9 @@ class Hikka:
                 client.tg_id,
                 client.hikka_db.get(__name__, "command_prefix", False) or ".",
             )
+            
         except Exception:
-            logging.exception("Badge error")
+        logging.exception("Badge error")
 
     async def _add_dispatcher(
         self,
