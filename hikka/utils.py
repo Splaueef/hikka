@@ -18,7 +18,7 @@
 
 # ©️ Dan Gazizullin, 2021-2023
 # This file is a part of Hikka Userbot
-# 🌐 https://github.com/hikariatama/Hikka
+# 🌐 https://github.com/Splaueef/hikka
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -1258,7 +1258,7 @@ def get_commit_url() -> str:
     try:
         hash_ = get_git_hash()
         return (
-            f'<a href="https://github.com/hikariatama/Hikka/commit/{hash_}">#{hash_[:7]}</a>'
+            f'<a href="https://github.com/Splaueef/hikka/commit/{hash_}">#{hash_[:7]}</a>'
         )
     except Exception:
         return "Unknown"
@@ -1549,7 +1549,7 @@ def get_git_info() -> typing.Tuple[str, str]:
     hash_ = get_git_hash()
     return (
         hash_,
-        f"https://github.com/hikariatama/Hikka/commit/{hash_}" if hash_ else "",
+        f"https://github.com/Splaueef/hikka/commit/{hash_}" if hash_ else "",
     )
 
 

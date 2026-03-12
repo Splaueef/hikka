@@ -292,7 +292,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Bot foydalanuvchi nomi noto'g'ri. U</b> <code>bot</code> <b>bilan tugashi kerak va kamida 4 belgidan iborat bo'lishi kerak</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Ushbu foydalanuvchi nomi allaqachon band</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Konfiguratsiya muvaffaqiyatli saqlandi. Ushbu o'zgarishlarni qo'llash uchun botni qayta ishga tushiring</b>"
-    this_is_hikka: "🌘 <b>Salom! Bu Hikka - kuchli modulli Telegram userboti. Siz uni o'zingizni akkauntingizga o'rnatishingiz mumkin!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Yordam chati</a></b>"
+    this_is_hikka: "🌘 <b>Salom! Bu Hikka - kuchli modulli Telegram userboti. Siz uni o'zingizni akkauntingizga o'rnatishingiz mumkin!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Yordam chati</a></b>"
     _cmd_doc_ch_hikka_bot: "<foydalanuvchi nomi> - Bot foydalanuvchi nomini o'zgartiring"
 
 test:
@@ -364,7 +364,7 @@ updater:
     btn_update: "🧭 Yangilash"
     restart_confirm: "❓ <b>Haqiqatan ham qayta ishga tushirmoqchimisiz?</b>"
     secure_boot_confirm: "❓ <b>Haqiqatan ham xavfsiz rejimda qayta ishga tushirmoqchimisiz?</b>"
-    update_confirm: "❓ <b>Haqiqatan ham yangilamoqchimisiz?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Haqiqatan ham yangilamoqchimisiz?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>Siz allaqachon eng so'nggi versiyasiz. Yangilamoqchimisiz?</b>"
     cancel: "🚫 Bekor qilish"
     _cls_doc: "Foydalanuvchi botini yangilaydi"

@@ -293,7 +293,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Көрсетілген бот аты жарамсыз. Оның соңында</b> <code>bot</code> <b>қосып, 4 символдан кем болмауы керек</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Бұл ат бос емес</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Баптаулар сақталды. Өзгертулерді қолдану үшін ботты қайта іске қосыңыз</b>"
-    this_is_hikka: "🌘 <b>Сәлеметсіз бе! Бұл Hikka — жақсы модульді Telegram бот. Сіз онды аккаунтыңызға орната аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Қолдау сөйлесу кезегі</a></b>"
+    this_is_hikka: "🌘 <b>Сәлеметсіз бе! Бұл Hikka — жақсы модульді Telegram бот. Сіз онды аккаунтыңызға орната аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Қолдау сөйлесу кезегі</a></b>"
     _cmd_doc_ch_hikka_bot: "<пайдаланушы аты> - Инлайн боттың пайдаланушы атын өзгерту"
 
 test:
@@ -367,7 +367,7 @@ updater:
     btn_update: "🧭 Жаңарту"
     restart_confirm: "❓ <b>Сен жаңартуға сенімдісін бе?</b>"
     secure_boot_confirm: "❓ <b>Сен бұл бетті безпеке режимінде жаңартуға сенімдісін бе?</b>"
-    update_confirm: "❓ <b>Сен жаңартуға сенімдісін бе?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Сен жаңартуға сенімдісін бе?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>Сіздің соңғы нұсқаныңыз бар. Сіз жаңартуға мүмкіндік береді ме?</b>"
     cancel: "🚫 Бас тарту"
     _cls_doc: "Юзерботты жаңарту"

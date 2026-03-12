@@ -721,7 +721,7 @@
 
 ## 🌑 Hikka 1.1.1
 
-- Drop Uniborg and Raphielgang compatibility layer. More info in [2d525ab](https://github.com/hikariatama/Hikka/commit/2d525ab6b0e6b9d7ccd7408bbe175cea24d780a5)
+- Drop Uniborg and Raphielgang compatibility layer. More info in [2d525ab](https://github.com/Splaueef/hikka/commit/2d525ab6b0e6b9d7ccd7408bbe175cea24d780a5)
 - Minor bug fixes
 
 ## 🌑 Hikka 1.1.0

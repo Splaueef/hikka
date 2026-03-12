@@ -292,7 +292,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Неправильний нік бота. Він повинен закінчуватися на</b> <code>bot</code> <b>і бути не коротшим ніж 5 символів</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Такий нік бота вже зайнятий</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Налаштування збережено. Для їх застосування потрібно перезавантажити юзербот</b>"
-    this_is_hikka: "🌘 <b>Привіт! Це Hikka — потужний модульний Telegram юзербот. Ви можете встановити його на свій акаунт!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чат підтримки</a></b>"
+    this_is_hikka: "🌘 <b>Привіт! Це Hikka — потужний модульний Telegram юзербот. Ви можете встановити його на свій акаунт!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чат підтримки</a></b>"
     _cmd_doc_ch_hikka_bot: "<юзернейм> - Змінити юзернейм інлайн бота"
 
 test:
@@ -366,7 +366,7 @@ updater:
     btn_update: "🧭 Оновитися"
     restart_confirm: "❓ <b>Ти впевнений, що хочеш перезавантажитися?</b>"
     secure_boot_confirm: "❓ <b>Ти впевнений, що хочеш перезавантажитися в режимі безпечного завантаження?</b>"
-    update_confirm: "❓ <b>Ти впевнений, що хочеш оновитися?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Ти впевнений, що хочеш оновитися?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>У тебе остання версія. Оновитися примусово?</b>"
     cancel: "🚫 Скасувати"
     _cls_doc: "Оновлює юзербот"

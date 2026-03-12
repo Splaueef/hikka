@@ -292,7 +292,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Der angegebene Benutzername ist ungültig. Er muss mit</b> <code>bot</code> <b>enden und mindestens 4 Zeichen lang sein</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Dieser Benutzername ist bereits vergeben</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Erfolgreich gespeichert. Starte den Userbot neu, um die Änderungen zu übernehmen</b>"
-    this_is_hikka: "🌘 <b>Hallo! Das ist Hikka — mächtiger modulare Telegram Userbot. Du kannst ihn auf deinen Account installieren!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Support Chat</a></b>"
+    this_is_hikka: "🌘 <b>Hallo! Das ist Hikka — mächtiger modulare Telegram Userbot. Du kannst ihn auf deinen Account installieren!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Support Chat</a></b>"
     _cmd_doc_ch_hikka_bot: "<username> - Ändere den Inline-Bot-Nutzernamen"
 
 test:
@@ -364,7 +364,7 @@ updater:
     btn_update: "🧭 Update"
     restart_confirm: "❓ <b>Bist du sicher, dass du neustarten willst?</b>"
     secure_boot_confirm: "❓ <b>Bist du sicher, dass du in den sicheren Modus neustarten willst?</b>"
-    update_confirm: "❓ <b>Bist du sicher, dass du updaten willst?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Bist du sicher, dass du updaten willst?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>Du hast die neueste Version. Willst du trotzdem updaten?</b>"
     cancel: "🚫 Abbrechen"
     _cls_doc: "Aktualisiert den Userbot"

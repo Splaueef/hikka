@@ -19,7 +19,7 @@
 
 # ©️ Dan Gazizullin, 2021-2023
 # This file is a part of Hikka Userbot
-# 🌐 https://github.com/hikariatama/Hikka
+# 🌐 https://github.com/Splaueef/hikka
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
@@ -787,7 +787,7 @@ class Hikka:
                 "https://github.com/hikariatama/assets/raw/master/hikka_banner.mp4",
                 caption=(
                     "🌘 <b>Hikka {} started!</b>\n\n🌳 <b>GitHub commit SHA: <a"
-                    ' href="https://github.com/hikariatama/Hikka/commit/{}">{}</a></b>\n✊'
+                    ' href="https://github.com/Splaueef/hikka/commit/{}">{}</a></b>\n✊'
                     " <b>Update status: {}</b>\n<b>{}</b>".format(
                         ".".join(list(map(str, list(__version__)))),
                         build,

@@ -287,7 +287,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Belirtilen bot kullanıcı adı geçersiz. Botun adı</b> <code>bot</code> <b>ile bitmeli ve en az 4 karakter içermelidir</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Bu kullanıcı adı zaten alınmış</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Yapılandırma başarıyla kaydedildi. Değişiklikleri uygulamak için botu yeniden başlatın</b>"
-    this_is_hikka: "🌘 <b>Merhaba! Bu Hikka — güçlü modüler Telegram kullanıcı botu. Hesabınıza kurup, kullanabilirsiniz!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Destek sohbeti</a></b>"
+    this_is_hikka: "🌘 <b>Merhaba! Bu Hikka — güçlü modüler Telegram kullanıcı botu. Hesabınıza kurup, kullanabilirsiniz!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Destek sohbeti</a></b>"
     _cmd_doc_ch_hikka_bot: "<kullanıcı adı> - İçe aktarma botunun kullanıcı adını değiştirin"
 
 test:
@@ -359,7 +359,7 @@ updater:
     btn_update: "🧭 Güncelle"
     restart_confirm: "❓ <b>Gerçekten yeniden başlatmak istiyor musunuz?</b>"
     secure_boot_confirm: "❓ <b>Gerçekten güvenli modda yeniden başlatmak istiyor musunuz?</b>"
-    update_confirm: "❓ <b>Gerçekten güncellemek istiyor musunuz?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Gerçekten güncellemek istiyor musunuz?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>Zaten son sürümünüz. Güncelleme yapmak ister misiniz?</b>"
     cancel: "🚫 İptal"
     _cls_doc: "Kullanıcı botunu günceller"

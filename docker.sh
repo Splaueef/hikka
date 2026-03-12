@@ -3,7 +3,7 @@
 PORT=3429 # Port to run the server on
 echo "EXTERNAL_PORT=$PORT" >.env
 
-eval "git clone https://github.com/hikariatama/Hikka"
+eval "git clone https://github.com/Splaueef/hikka"
 cd Hikka
 
 touch hikka-install.log

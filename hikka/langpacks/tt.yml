@@ -267,7 +267,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Ботын нике дөрес түгел булуы керек. Оны <code>bot</code> <b>белән ачып, 5 символдан аз булмаска тиеш</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Бу ник боты бар</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Көйләүләр сакланды. Уларны үзгәртү өчен юзерботны яңартыгыз</b>"
-    this_is_hikka: "🌘 <b>Сәлам! Бу Хикка, көчле модульле телеграмма кулланучысы. Сез аны үз хисабыгызда урнаштыра аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чатка ярдәм</a></b>"
+    this_is_hikka: "🌘 <b>Сәлам! Бу Хикка, көчле модульле телеграмма кулланучысы. Сез аны үз хисабыгызда урнаштыра аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чатка ярдәм</a></b>"
     _cmd_doc_ch_hikka_bot: "<username> - Инлайн ботын никен үзгәртү"
 
 test:
@@ -341,7 +341,7 @@ updater:
     btn_update: "🧭 Яңару"
     restart_confirm: "❓ <b>Ты уверен, что хочешь перезагрузиться?</b>"
     secure_boot_confirm: "❓ <b>Сез яңадан башларга телисезме?</b>"
-    update_confirm: "❓ <b>Сез яңартырга телисезме?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Сез яңартырга телисезме?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>Сезнең соңгы версиягез бар. Яңарту мәҗбүриме?</b>"
     cancel: "🚫 Бетерү"
     _cls_doc: "Юзерботны яңарта"

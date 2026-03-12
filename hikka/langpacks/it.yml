@@ -290,7 +290,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Il nome utente del bot non è valido. Deve terminare con</b> <code>bot</code> <b>e contenere almeno 4 caratteri</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Questo nome utente è già occupato</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Le impostazioni sono state salvate. Riavvia il bot per applicare le modifiche</b>"
-    this_is_hikka: "🌘 <b>Ciao! Questo è Hikka — potente userbot modulare per Telegram. Lo puoi installare sul tuo account!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Chat di supporto</a></b>"
+    this_is_hikka: "🌘 <b>Ciao! Questo è Hikka — potente userbot modulare per Telegram. Lo puoi installare sul tuo account!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Chat di supporto</a></b>"
     _cmd_doc_ch_hikka_bot: "<username> - Cambia il nome utente del bot inline"
 
 test:
@@ -364,7 +364,7 @@ updater:
     btn_update: "🧭 Aggiorna"
     restart_confirm: "❓ <b>Sei sicuro di voler riavviare?</b>"
     secure_boot_confirm: "❓ <b>Sei sicuro di voler riavviare in modalità avvio sicuro?</b>"
-    update_confirm: "❓ <b>Sei sicuro di voler aggiornare?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Sei sicuro di voler aggiornare?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>Sei già aggiornato. Forzare l'aggiornamento?</b>"
     cancel: "🚫 Annulla"
     _cls_doc: "Aggiorna il tuo userbot"

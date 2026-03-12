@@ -30,7 +30,7 @@ Simply run this command out of <b>root</b> and follow the instructions of instal
 <code>. <(wget -qO- https://hikariatama.ru/get_hikka)</code><br>
 <br>
 <b>Manual installation (no script):</b><br>
-<code>apt update && apt install git libcairo2 -y && git clone https://github.com/hikariatama/Hikka && cd Hikka && pip install -r requirements.txt && python3 -m hikka</code><br.>
+<code>apt update && apt install git libcairo2 -y && git clone https://github.com/Splaueef/hikka && cd Hikka && pip install -r requirements.txt && python3 -m hikka</code><br.>
 <i>If you are on VPS\VDS, type <code>--proxy-pass</code> in the end of command to open SSH tunnel to your Hikka web interface, or use <code>--no-web</code> to complete setup in console</i><br>
 <br>
 <b>Some further details:</b>

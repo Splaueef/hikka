@@ -292,7 +292,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Неправильный ник бота. Он должен заканчиваться на</b> <code>bot</code> <b>и быть не короче чем 5 символов</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Такой ник бота уже занят</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Настройки сохранены. Для их применения нужно перезагрузить юзербот</b>"
-    this_is_hikka: "🌘 <b>Привет! Это Hikka — мощный модульный Telegram юзербот. Вы можете установить его на свой аккаунт!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чат поддержки</a></b>"
+    this_is_hikka: "🌘 <b>Привет! Это Hikka — мощный модульный Telegram юзербот. Вы можете установить его на свой аккаунт!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чат поддержки</a></b>"
     _cmd_doc_ch_hikka_bot: "<юзернейм> - Изменить юзернейм инлайн бота"
 
 test:
@@ -366,7 +366,7 @@ updater:
     btn_update: "🧭 Обновиться"
     restart_confirm: "❓ <b>Ты уверен, что хочешь перезагрузиться?</b>"
     secure_boot_confirm: "❓ <b>Ты уверен, что хочешь перезагрузиться в режиме безопасной загрузки?</b>"
-    update_confirm: "❓ <b>Ты уверен, что хочешь обновиться?\n\n<a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/hikariatama/Hikka/commit/{}\">{}</a></b>"
+    update_confirm: "❓ <b>Ты уверен, что хочешь обновиться?\n\n<a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a> ⤑ <a href=\"https://github.com/Splaueef/hikka/commit/{}\">{}</a></b>"
     no_update: "🚸 <b>У тебя последняя версия. Обновиться принудительно?</b>"
     cancel: "🚫 Отмена"
     _cls_doc: "Обновляет юзербот"
