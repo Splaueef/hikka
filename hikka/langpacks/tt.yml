@@ -267,7 +267,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Ботын нике дөрес түгел булуы керек. Оны <code>bot</code> <b>белән ачып, 5 символдан аз булмаска тиеш</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Бу ник боты бар</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Көйләүләр сакланды. Уларны үзгәртү өчен юзерботны яңартыгыз</b>"
-    this_is_hikka: "🌘 <b>Сәлам! Бу Хикка, көчле модульле телеграмма кулланучысы. Сез аны үз хисабыгызда урнаштыра аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чатка ярдәм</a></b>"
+    this_is_hikka: "🌘 <b>Сәлам! Бу Хикка, көчле модульле телеграмма кулланучысы. Сез аны үз хисабыгызда урнаштыра аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"t.me/RotKranzUK\">Чатка ярдәм</a></b>"
     _cmd_doc_ch_hikka_bot: "<username> - Инлайн ботын никен үзгәртү"
 
 test:
@@ -374,7 +374,7 @@ help:
     all_header: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} модульләр бар, {} яшерелгән:</b>"
     no_mod: "🚫 <b>Яшерергә кирәк булган модульне күрсәтегез (- һәм)</b>"
     hidden_shown: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} модуль яшерелгән, {} модуль яшерелгән:</b>\n{}\n{}"
-    support: "{} <b>Сылтама</b> <href='https://t.me/RotKranzUK'>ярдәм чаты</a></b>"
+    support: "{} <b>Сылтама</b> <href='t.me/RotKranzUK'>ярдәм чаты</a></b>"
     _cls_doc: "Модульләр буенча ярдәм күрсәтә"
     partial_load: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Юзербот әле тулысынча йөкләнмәгән, шуңа күрә барлык модульләр дә күрсәтелмәгән</b>"
     not_exact: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Төгәл матч табылмады, шуңа күрә иң яхшысы сайланды</b>"

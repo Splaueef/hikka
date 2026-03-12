@@ -69,7 +69,7 @@ Simply run this command out of <b>root</b> and follow the instructions of instal
 Check out <a href="https://dev.hikka.pw">dev.hikka.pw</a> for developers' documentation and <a href="https://hikka.pw">hikka.pw</a> for users' documentation<br>
 
 <hr>
-<h2 border="none"><img src="https://github.com/Splaueef/assets/raw/main/981-consultation-flat.webp" height="54" align="middle"> <a href="https://t.me/RotKranzUK">Support</a></h2>
+<h2 border="none"><img src="https://github.com/Splaueef/assets/raw/main/981-consultation-flat.webp" height="54" align="middle"> <a href="t.me/RotKranzUK">Support</a></h2>
 <hr>
 <h2 border="none"><img src="https://github.com/Splaueef/assets/raw/main/541-hand-washing-step-12-flat.webp" height="54" align="middle"> Features</h2>
 <table>

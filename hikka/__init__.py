@@ -8,7 +8,7 @@
 # Do not delete this file, it will cause errors.
 
 __author__ = "Dan Gazizullin"
-__contact__ = "me@Splaueef.ru"
+__contact__ = "rotkranz@pm.me"
 __copyright__ = "Copyright 2022, Dan Gazizullin"
 __credits__ = ["LonamiWebs", "penn5"]
 __license__ = "AGPLv3"

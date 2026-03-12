@@ -231,7 +231,7 @@ settings:
     alias_removed: "<emoji document_id=5197474765387864959>👍</emoji> <b>Алиас</b> <code>{}</code> <b>жойылды</b>."
     no_alias: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Алиас</b> <code>{}</code> <b>жоқ</b>"
     db_cleared: "<emoji document_id=5197474765387864959>👍</emoji> <b>База тазаланды</b>"
-    hikka: "{} <b>{}.{}.{}</b> <i>{}</i>\n\n<b><emoji document_id=5377437404078546699>💜</emoji> <b>Hikka-TL:</b> <i>{}</i>\n{} <b>Hikka-Pyro:</b> <i>{}</i>\n\n<emoji document_id=5454182070156794055>⌨️</emoji> <b>Әзірлеуші: t.me/Splaueef</b>"
+    hikka: "{} <b>{}.{}.{}</b> <i>{}</i>\n\n<b><emoji document_id=5377437404078546699>💜</emoji> <b>Hikka-TL:</b> <i>{}</i>\n{} <b>Hikka-Pyro:</b> <i>{}</i>\n\n<emoji document_id=5454182070156794055>⌨️</emoji> <b>Әзірлеуші: t.me/RotKranz</b>"
     _cls_doc: "Жүйе бастапқы параметрлерін басқару"
     confirm_cleardb: "⚠️ <b>Сіз дейінгі база деректерін тазалауға сенімдісіз бе?</b>"
     cleardb_confirm: "🗑 База деректерін тазалау"
@@ -293,7 +293,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Көрсетілген бот аты жарамсыз. Оның соңында</b> <code>bot</code> <b>қосып, 4 символдан кем болмауы керек</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Бұл ат бос емес</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Баптаулар сақталды. Өзгертулерді қолдану үшін ботты қайта іске қосыңыз</b>"
-    this_is_hikka: "🌘 <b>Сәлеметсіз бе! Бұл Hikka — жақсы модульді Telegram бот. Сіз онды аккаунтыңызға орната аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Қолдау сөйлесу кезегі</a></b>"
+    this_is_hikka: "🌘 <b>Сәлеметсіз бе! Бұл Hikka — жақсы модульді Telegram бот. Сіз онды аккаунтыңызға орната аласыз!</b>\n\n<b>🌍 <a href=\"https://github.com/Splaueef/hikka\">GitHub</a></b>\n<b>👥 <a href=\"t.me/RotKranzUK\">Қолдау сөйлесу кезегі</a></b>"
     _cmd_doc_ch_hikka_bot: "<пайдаланушы аты> - Инлайн боттың пайдаланушы атын өзгерту"
 
 test:
@@ -403,7 +403,7 @@ help:
     all_header: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} қосымша модуль, {} жасырын:</b>"
     no_mod: "🚫 <b>Жасыру үшін модуль енгізіңіз</b>"
     hidden_shown: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} жасырын, {} модуль көрсетілді:</b>\n{}\n{}"
-    support: "{} <b><a href='https://t.me/RotKranzUK'>Көмек сөйлесу</a></b>"
+    support: "{} <b><a href='t.me/RotKranzUK'>Көмек сөйлесу</a></b>"
     _cls_doc: "Модуль көмектерін көрсетеді"
     partial_load: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Пайдаланушы боты әлде бірінші бетіне жүктелгеннен кейін, барлық модулдер көрсетілмейді</b>"
     not_exact: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Ешқандай таптырылмаған нәтиже жоқ, сондықтан ең қанағаттары көрсетілді</b>"

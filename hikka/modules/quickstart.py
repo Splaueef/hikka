@@ -33,7 +33,7 @@ class Quickstart(loader.Module):
             [
                 {
                     "text": self.strings("btn_support"),
-                    "url": "https://t.me/RotKranzUK",
+                    "url": "t.me/RotKranzUK",
                 }
             ],
         ] + utils.chunks(
