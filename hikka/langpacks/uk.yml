@@ -292,7 +292,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Неправильний нік бота. Він повинен закінчуватися на</b> <code>bot</code> <b>і бути не коротшим ніж 5 символів</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Такий нік бота вже зайнятий</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Налаштування збережено. Для їх застосування потрібно перезавантажити юзербот</b>"
-    this_is_hikka: "🌘 <b>Привіт! Це Hikka — потужний модульний Telegram юзербот. Ви можете встановити його на свій акаунт!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/hikka_talks\">Чат підтримки</a></b>"
+    this_is_hikka: "🌘 <b>Привіт! Це Hikka — потужний модульний Telegram юзербот. Ви можете встановити його на свій акаунт!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Чат підтримки</a></b>"
     _cmd_doc_ch_hikka_bot: "<юзернейм> - Змінити юзернейм інлайн бота"
 
 test:
@@ -402,7 +402,7 @@ help:
     all_header: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} модулів доступно, {} приховано:</b>"
     no_mod: "🚫 <b>Вкажи модуль(-і), які потрібно приховати</b>"
     hidden_shown: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} модулів приховано, {} модулів показано:</b>\n{}\n{}"
-    support: "{} <b>Посилання на</b> <a href='https://t.me/hikka_talks'>чат допомоги</a></b>"
+    support: "{} <b>Посилання на</b> <a href='https://t.me/RotKranzUK'>чат допомоги</a></b>"
     _cls_doc: "Показує допомогу по модулях"
     partial_load: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Юзербот ще не завантажився повністю, тому показані не всі модулі</b>"
     not_exact: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Точного збігу не знайшлося, тому було обрано найбільш підходяще</b>"

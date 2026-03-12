@@ -292,7 +292,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Nom d'utilisateur du bot incorrect. Il doit être de plus de 5 caractères et se terminer par </b> <code>bot</code>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Nom d'utilisateur du bot déjà occupé</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Paramètres enregistrés. Redémarrez le bot pour les appliquer</b>"
-    this_is_hikka: "🌘 <b>Bonjour! C'est Hikka — un puissant module Telegram userbot. Vous pouvez l'installer sur votre compte!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/hikka_talks\">Chat de support</a></b>"
+    this_is_hikka: "🌘 <b>Bonjour! C'est Hikka — un puissant module Telegram userbot. Vous pouvez l'installer sur votre compte!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Chat de support</a></b>"
     _cmd_doc_ch_hikka_bot: "<nom d'utilisateur> - Changez le nom d'utilisateur de votre bot inline"
 
 test:
@@ -402,7 +402,7 @@ help:
     all_header: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} module disponible, {} caché:</b>"
     no_mod: "🚫 <b>Indiquer le module(-s) à cacher</b>"
     hidden_shown: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} module caché, {} module montré:</b>\n{}\n{}"
-    support: "{} <b>Liens</b> <a href='https://t.me/hikka_talks'>chat d'aide</a></b>"
+    support: "{} <b>Liens</b> <a href='https://t.me/RotKranzUK'>chat d'aide</a></b>"
     _cls_doc: "Affiche l'aide par module"
     partial_load: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Le robot utilisateur n'a pas encore complètement chargé, donc pas tous les modules ont été montrés</b>"
     not_exact: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Pas de correspondance exacte trouvé, donc le plus approprié a été choisi</b>"

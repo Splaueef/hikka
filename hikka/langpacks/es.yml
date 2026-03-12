@@ -287,7 +287,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>El nombre de usuario del bot no es válido. Debe terminar con</b> <code>bot</code> <b>y tener al menos 4 caracteres</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>El nombre de usuario ya está en uso</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>La configuración se guardó correctamente. Reinicie el bot para aplicar los cambios</b>"
-    this_is_hikka: "🌘 <b>¡Hola! Este es Hikka - un poderoso bot de usuario modular de Telegram. ¡Puedes instalarlo en tu cuenta!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/hikka_talks\">Chat de soporte</a></b>"
+    this_is_hikka: "🌘 <b>¡Hola! Este es Hikka - un poderoso bot de usuario modular de Telegram. ¡Puedes instalarlo en tu cuenta!</b>\n\n<b>🌍 <a href=\"https://github.com/hikariatama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Chat de soporte</a></b>"
     _cmd_doc_ch_hikka_bot: "<nombre de usuario> - Cambia el nombre de usuario del bot de inline"
 
 test:
@@ -395,7 +395,7 @@ help:
     all_header: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} módulos, {} ocultos:</b>"
     no_mod: "🚫 <b>Por favor, introduce el módulo que deseas ocultar</b>"
     hidden_shown: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} ocultos, {} módulos mostrados:</b>\n{}\n{}"
-    support: "{} <b><a href='https://t.me/hikka_talks'>Chat de soporte</a></b>"
+    support: "{} <b><a href='https://t.me/RotKranzUK'>Chat de soporte</a></b>"
     _cls_doc: "Muestra la ayuda del módulo"
     partial_load: "<emoji document_id=5312383351217201533>☝️</emoji> <b>El bot no se ha cargado por completoaún, por lo que no se muestran todos los módulos</b>"
     not_exact: "<emoji document_id=5312383351217201533>☝️</emoji> <b>No se encontraron resultados exactos, por lo que se muestran los resultados más relevantes</b>"

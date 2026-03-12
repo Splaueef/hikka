@@ -306,7 +306,7 @@ inline_stuff:
     bot_username_invalid: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Specified bot username is invalid. It must end with</b> <code>bot</code> <b>and contain at least 4 symbols</b>"
     bot_username_occupied: "<emoji document_id=5210952531676504517>🚫</emoji> <b>This username is already occupied</b>"
     bot_updated: "<emoji document_id=6318792204118656433>🎉</emoji> <b>Config successfully saved. Restart userbot to apply changes</b>"
-    this_is_hikka: "🌘 <b>Hi! This is Hikka — powerful modular Telegram userbot. You can install it to your account!</b>\n\n<b>🌍 <a href=\"https://github.com/hikaraitama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/hikka_talks\">Support chat</a></b>"
+    this_is_hikka: "🌘 <b>Hi! This is Hikka — powerful modular Telegram userbot. You can install it to your account!</b>\n\n<b>🌍 <a href=\"https://github.com/hikaraitama/Hikka\">GitHub</a></b>\n<b>👥 <a href=\"https://t.me/RotKranzUK\">Support chat</a></b>"
     _cmd_doc_ch_hikka_bot: "<username> - Change your Hikka inline bot username"
     _cls_doc: "Provides support for inline stuff"
 
@@ -427,7 +427,7 @@ help:
     all_header: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} mods available, {} hidden:</b>"
     no_mod: "🚫 <b>Specify module to hide</b>"
     hidden_shown: "<emoji document_id=5188377234380954537>🌘</emoji> <b>{} modules hidden, {} modules shown:</b>\n{}\n{}"
-    support: "{} <b>Link to</b> <a href='https://t.me/hikka_talks'>support chat</a></b>"
+    support: "{} <b>Link to</b> <a href='https://t.me/RotKranzUK'>support chat</a></b>"
     partial_load: "<emoji document_id=5312383351217201533>☝️</emoji> <b>Userbot is not fully loaded, so not all modules are shown</b>"
     not_exact: "<emoji document_id=5312383351217201533>☝️</emoji> <b>No exact match occured, so the closest result is shown instead</b>"
     request_join: "You requested link for Hikka support chat"
