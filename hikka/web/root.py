@@ -80,10 +80,10 @@ class Web:
     @property
     def _platform_emoji(self) -> str:
         return {
-            "vds": "https://github.com/hikariatama/assets/raw/main/waning-crescent-moon_1f318.png",
-            "lavhost": "https://github.com/hikariatama/assets/raw/main/victory-hand_270c-fe0f.png",
-            "termux": "https://github.com/hikariatama/assets/raw/main/smiling-face-with-sunglasses_1f60e.png",
-            "docker": "https://github.com/hikariatama/assets/raw/main/spouting-whale_1f433.png",
+            "vds": "https://github.com/Splaueef/assets/raw/main/waning-crescent-moon_1f318.png",
+            "lavhost": "https://github.com/Splaueef/assets/raw/main/victory-hand_270c-fe0f.png",
+            "termux": "https://github.com/Splaueef/assets/raw/main/smiling-face-with-sunglasses_1f60e.png",
+            "docker": "https://github.com/Splaueef/assets/raw/main/spouting-whale_1f433.png",
         }[
             (
                 "lavhost"

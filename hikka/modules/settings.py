@@ -49,7 +49,7 @@ class CoreMod(loader.Module):
     async def hikkacmd(self, message: Message):
         await utils.answer_file(
             message,
-            "https://github.com/hikariatama/assets/raw/main/hikka_cat_banner.mp4",
+            "https://github.com/Splaueef/assets/raw/main/hikka_cat_banner.mp4",
             self.strings("hikka").format(
                 (
                     utils.get_platform_emoji()

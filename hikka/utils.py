@@ -393,7 +393,7 @@ async def answer_file(
         >>> await utils.answer_file(message, "test.txt")
         >>> await utils.answer_file(
             message,
-            "https://mods.hikariatama.ru/badges/artai.jpg",
+            "https://mods.Splaueef.ru/badges/artai.jpg",
             "This is the cool module, check it out!",
         )
     """

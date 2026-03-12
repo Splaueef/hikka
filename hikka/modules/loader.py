@@ -78,7 +78,7 @@ class LoaderMod(loader.Module):
                 "ADDITIONAL_REPOS",
                 # Currenly the trusted developers are specified
                 [
-                    "https://github.com/hikariatama/host/raw/main",
+                    "https://github.com/Splaueef/host/raw/main",
                     "https://github.com/MoriSummerz/ftg-mods/raw/main",
                     "https://gitlab.com/CakesTwix/friendly-userbot-modules/-/raw/main",
                 ],
