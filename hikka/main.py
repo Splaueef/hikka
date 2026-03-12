@@ -23,7 +23,7 @@
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
-import git
+
 import argparse
 import asyncio
 import collections
@@ -749,52 +749,49 @@ class Hikka:
         """Call the badge in shell"""
         try:
             import git
-            repo = git.Repo()  # ТУТ МАЄ БУТИ ВІДСТУП (4 пробіли)
+
+            repo = git.Repo()
 
             build = utils.get_git_hash()
+            diff = repo.git.log([f"HEAD..origin/{version.branch}", "--oneline"])
+            upd = "Update required" if diff else "Up-to-date"
 
-        diff = repo.git.log([f"HEAD..origin/{version.branch}", "--oneline"])
-        upd = "Update required" if diff else "Up-to-date"
-
-        # 1. ВИНОСИМО ЛОГІКУ ВИЗНАЧЕННЯ WEB_URL СЮДИ (вище за всі if)
-        web_url = (
-            f"🌐 Web url: {self.web.url}"
-            if self.web and hasattr(self.web, "url")
-            else ""
-        )
-
-        logo = (
-            "█ █ █ █▄▀ █▄▀ ▄▀█\n"
-            "█▀█ █ █ █ █ █ █▀█\n\n"
-            f"• Build: {build[:7]}\n"
-            f"• Version: {'.'.join(list(map(str, list(__version__))))}\n"
-            f"• {upd}\n"
-        )
-
-        if not self.omit_log:
-            print(logo)
-            # Тут ми просто використовуємо вже готову змінну для логів
-            logging.debug(
-                "\n🌘 Hikka %s #%s (%s) started\n%s",
-                ".".join(list(map(str, list(__version__)))),
-                build[:7],
-                upd,
-                web_url,
+            logo = (
+                "█ █ █ █▄▀ █▄▀ ▄▀█\n"
+                "█▀█ █ █ █ █ █ █▀█\n\n"
+                f"• Build: {build[:7]}\n"
+                f"• Version: {'.'.join(list(map(str, list(__version__))))}\n"
+                f"• {upd}\n"
             )
-            self.omit_log = True
 
-            await client.hikka_inline.bot.send_animation(
-            logging.getLogger().handlers[0].get_logid_by_client(client.tg_id),
-            "https://github.com/hikariatama/assets/raw/master/hikka_banner.mp4",
-            caption=(
-                "🌘 <b>Hikka {} started!</b>\n\n🌳 <b>GitHub commit SHA: <a"
-                ' href="https://github.com/hikariatama/Hikka/commit/{}">{}</a></b>\n✊'
-                " <b>Update status: {}</b>\n<b>{}</b>".format(
+            if not self.omit_log:
+                print(logo)
+                web_url = (
+                    f"🌐 Web url: {self.web.url}"
+                    if self.web and hasattr(self.web, "url")
+                    else ""
+                )
+                logging.debug(
+                    "\n🌘 Hikka %s #%s (%s) started\n%s",
                     ".".join(list(map(str, list(__version__)))),
-                    build,
                     build[:7],
                     upd,
                     web_url,
+                )
+                self.omit_log = True
+
+            await client.hikka_inline.bot.send_animation(
+                logging.getLogger().handlers[0].get_logid_by_client(client.tg_id),
+                "https://github.com/hikariatama/assets/raw/master/hikka_banner.mp4",
+                caption=(
+                    "🌘 <b>Hikka {} started!</b>\n\n🌳 <b>GitHub commit SHA: <a"
+                    ' href="https://github.com/hikariatama/Hikka/commit/{}">{}</a></b>\n✊'
+                    " <b>Update status: {}</b>\n<b>{}</b>".format(
+                        ".".join(list(map(str, list(__version__)))),
+                        build,
+                        build[:7],
+                        upd,
+                        web_url,
                     )
                 ),
             )
@@ -804,9 +801,8 @@ class Hikka:
                 client.tg_id,
                 client.hikka_db.get(__name__, "command_prefix", False) or ".",
             )
-            
         except Exception:
-        logging.exception("Badge error")
+            logging.exception("Badge error")
 
     async def _add_dispatcher(
         self,
