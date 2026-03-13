@@ -319,7 +319,7 @@ unit_heta:
     loaded: "✅ Başarıyla yüklendi"
     not_loaded: "❌ Yükleme başarısız oldu"
     language: "tr"
-    _cls_doc: "@hikkamods_bot ile ilgili şeyleri yönetir"
+    _cls_doc: ".dlm ile ilgili şeyleri yönetir"
     404: "<emoji document_id=5210952531676504517>❌</emoji> <b>Modül bulunamadı</b>"
     not_exact: "<emoji document_id=5312383351217201533>⚠️</emoji> <b>Herhangi bir tam eşleşme bulunamadığından, en yakın sonuç gösteriliyor</b>"
     link: "<emoji document_id=5280658777148760247>🌐</emoji> <b><a href=\"{url}\">Bağlantı</a> için</b> <code>{class_name}</code>\n\n<emoji document_id=5188377234380954537>🌘</emoji> <code>{prefix}dlm {url}</code>\n\n{not_exact}"
@@ -528,7 +528,7 @@ translate:
     _cmd_doc_tr: "[dil] [metin] - Metni çevir"
 
 quickstart:
-    base: "🌘🇹🇷 <b>Merhaba.</b> <b>Hikka</b> kullanıcı botunuz kuruldu.\n\n❓ <b>Yardıma mı ihtiyacınız var?</b> Yardım grubumuza katılabilirsin. Herkese <b>yardım ediyoruz</b>.\n\n📼 <b>Modülleri @hikkamods_bot ile arayabilir ve kurabilirsiniz. Sadece anahtar kelimeleri girin ve istediğiniz modülün ⛩ Kur butonuna basın</b>\n\n📣 <b>Topluluk tarafından oluşturulan modül kanalları görüntüleyin: <a href=\"https://t.me/hikka_ub/126\">göster</a></b>\n\n💁‍♀️ <b>Hızlı başlangıç:</b>\n\n1️⃣ <b>Modüller listesini görmek için</b> <code>.help</code> <b>yazın</b>\n2️⃣ <b>Modül hakkında bilgi almak için</b> <code>.help &lt;Modul adı/Komut&gt;</code> <b>yazın</b>\n3️⃣ <b>Bir bağlantıdan modül yüklemek için</b> <code>.dlmod &lt;Link&gt;</code> <b>yazın</b>\n4️⃣ <b>Bir modülü bir dosyadan yüklemek için</b> <code>.loadmod</code> <b>bir dosyanın yanıtını yazın</b>\n5️⃣ <b>Bir modülü kaldırmak için</b> <code>.unloadmod &lt;Modul adı&gt;</code> <b>yazın</b>\n\n💡 <b>Hikka, Friendly-Telegram, DragonUserbot ve GeekTG modüllerini de dahil olmak üzere kendi modüllerini destekler.</b>\n"
+    base: "🌘🇹🇷 <b>Merhaba.</b> <b>Hikka</b> kullanıcı botunuz kuruldu.\n\n❓ <b>Yardıma mı ihtiyacınız var?</b> Yardım grubumuza katılabilirsin. Herkese <b>yardım ediyoruz</b>.\n\n📼 <b>Modülleri .dlm ile arayabilir ve kurabilirsiniz. Sadece anahtar kelimeleri girin ve istediğiniz modülün ⛩ Kur butonuna basın</b>\n\n📣 <b>Topluluk tarafından oluşturulan modül kanalları görüntüleyin: <a href=\"https://t.me/hikka_ub/126\">göster</a></b>\n\n💁‍♀️ <b>Hızlı başlangıç:</b>\n\n1️⃣ <b>Modüller listesini görmek için</b> <code>.help</code> <b>yazın</b>\n2️⃣ <b>Modül hakkında bilgi almak için</b> <code>.help &lt;Modul adı/Komut&gt;</code> <b>yazın</b>\n3️⃣ <b>Bir bağlantıdan modül yüklemek için</b> <code>.dlmod &lt;Link&gt;</code> <b>yazın</b>\n4️⃣ <b>Bir modülü bir dosyadan yüklemek için</b> <code>.loadmod</code> <b>bir dosyanın yanıtını yazın</b>\n5️⃣ <b>Bir modülü kaldırmak için</b> <code>.unloadmod &lt;Modul adı&gt;</code> <b>yazın</b>\n\n💡 <b>Hikka, Friendly-Telegram, DragonUserbot ve GeekTG modüllerini de dahil olmak üzere kendi modüllerini destekler.</b>\n"
     railway: "🚂 <b>Kullanıcı botunuz Railway'de kuruldu</b>. Bu platform, <b>aylık sadece 500 saati ücretsiz olarak</b> sağlamaktadır. Sınırı aştığınızda, kullanıcı botunuz <b>durdurulur</b>. Gelecek ay, https://railway.app adresinden botunuzu yeniden başlatmanız gerekmektedir.</b>"
     lavhost: "✌️ <b>lavHost'a kurulumunuz tamamlandı.</b> Önemli duyurular ve güncellemeleri almak için @lavhost'a katılın. Platformla ilgili sorularınızı @lavhostchat'da sorabilirsiniz."
     language_saved: "🇹🇷 Dil kaydedildi!"

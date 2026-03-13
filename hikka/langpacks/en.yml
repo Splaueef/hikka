@@ -353,7 +353,7 @@ unit_heta:
     args: "<emoji document_id=5210952531676504517>❌</emoji> <b>You must specify arguments</b>"
     _cmd_doc_heta: "<query> - Searches Heta repository for modules"
     _cmd_doc_ml: "<module name> - Send link to module"
-    _cls_doc: "Manages stuff with @hikkamods_bot"
+    _cls_doc: "Manages stuff with .dlm"
     enter_search_query: "🔎 Enter search query"
     search_query_desc: "Command, module name, description, etc."
     _ihandle_doc_heta: "Searches Heta repository for modules"
@@ -566,7 +566,7 @@ translate:
 
 quickstart:
     name: "Quickstart"
-    base: "🌘🇬🇧 <b>Hello.</b> You've just installed <b>Hikka</b> userbot.\n\n❓ <b>Need help?</b> Feel free to join our support chat. We help <b>everyone</b>.\n\n📼 <b>You can find and install modules using @hikkamods_bot. Simply enter your search query and click ⛩ Install on needed module</b>\n\n📣 <b>Check out community made channels with modules: <a href=\"https://t.me/hikka_ub/126\">show</a></b>\n\n💁‍♀️ <b>Quickstart:</b>\n\n1️⃣ <b>Type</b> <code>.help</code> <b>to see modules list</b>\n2️⃣ <b>Type</b> <code>.help &lt;ModuleName/command&gt;</code> <b>to see help of module ModuleName</b>\n3️⃣ <b>Type</b> <code>.dlmod &lt;link&gt;</code> <b>to load module from link</b>\n4️⃣ <b>Type</b> <code>.loadmod</code> <b>with reply to file to install module from it</b>\n5️⃣ <b>Type</b> <code>.unloadmod &lt;ModuleName&gt;</code> <b>to unload module ModuleName</b>\n\n💡 <b>Hikka supports modules from Friendly-Telegram, DragonUserbot and GeekTG, as well as its own ones.</b>"
+    base: "🌘🇬🇧 <b>Hello.</b> You've just installed <b>Hikka</b> userbot.\n\n❓ <b>Need help?</b> Feel free to join our support chat. We help <b>everyone</b>.\n\n📼 <b>You can find and install modules using .dlm. Simply enter your search query and click ⛩ Install on needed module</b>\n\n📣 <b>Check out community made channels with modules: <a href=\"https://t.me/hikka_ub/126\">show</a></b>\n\n💁‍♀️ <b>Quickstart:</b>\n\n1️⃣ <b>Type</b> <code>.help</code> <b>to see modules list</b>\n2️⃣ <b>Type</b> <code>.help &lt;ModuleName/command&gt;</code> <b>to see help of module ModuleName</b>\n3️⃣ <b>Type</b> <code>.dlmod &lt;link&gt;</code> <b>to load module from link</b>\n4️⃣ <b>Type</b> <code>.loadmod</code> <b>with reply to file to install module from it</b>\n5️⃣ <b>Type</b> <code>.unloadmod &lt;ModuleName&gt;</code> <b>to unload module ModuleName</b>\n\n💡 <b>Hikka supports modules from Friendly-Telegram, DragonUserbot and GeekTG, as well as its own ones.</b>"
     railway: "🚂 <b>Your userbot is installed on Railway</b>. This platform has only <b>500 free hours per month</b>. Once this limit is reached, your <b>Hikka will be frozen</b>. Next month <b>you will need to go to https://railway.app and restart it</b>."
     lavhost: "✌️ <b>Your userbot is installed on lavHost</b>. Make sure to join @lavhost for important notifications and updates. All questions regarding the platform should be asked in @lavhostchat."
     language_saved: "🇬🇧 Language saved!"
