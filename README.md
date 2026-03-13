@@ -25,9 +25,7 @@ As of March 2025, you can apply for an early stage of alpha-testing through the 
 
 <a href="https://t.me/lavhostbot?start=SGlra2E"><img src="https://user-images.githubusercontent.com/36935426/167272288-85f00779-4b98-47da-8d0d-ea2c6370b979.png" height="40"></a>
 
-<h2>Local installation:</h2>
-Simply run this command out of <b>root</b> and follow the instructions of installer:<br>
-<code>. <(wget -qO- https://Splaueef.ru/get_hikka)</code><br>
+
 <br>
 <b>Manual installation (no script):</b><br>
 <code>apt update && apt install git libcairo2 -y && git clone https://github.com/Splaueef/hikka && cd Hikka && pip install -r requirements.txt && python3 -m hikka</code><br.>
