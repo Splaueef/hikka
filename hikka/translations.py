@@ -23,7 +23,7 @@ yaml = YAML(typ="safe")
 PACKS = Path(__file__).parent / "langpacks"
 SUPPORTED_LANGUAGES = {
     "en": "🇬🇧 English",
-    "ru": "🇷🇺 Русский",
+    "uk": "🇺🇦 Українська",
     "fr": "🇫🇷 Français",
     "it": "🇮🇹 Italiano",
     "de": "🇩🇪 Deutsch",
@@ -108,10 +108,10 @@ class BaseTranslator:
         if lang := self.db.get(__name__, "lang", False):
             return next(
                 (data[language] for language in lang.split() if language in data),
-                data.get("en", {}),
+                data.get("uk", {}),
             )
 
-        return data.get("en", {})
+        return data.get("uk", {})
 
 
 class Translator(BaseTranslator):
@@ -122,8 +122,8 @@ class Translator(BaseTranslator):
         self.raw_data = {}
 
     async def init(self) -> bool:
-        self._data = self._get_pack_content(PACKS / "en.yml")
-        self.raw_data["en"] = self._data.copy()
+        self._data = self._get_pack_content(PACKS / "uk.yml")
+        self.raw_data["uk"] = self._data.copy()
         any_ = False
         if lang := self.db.get(__name__, "lang", False):
             for language in lang.split():
@@ -211,7 +211,7 @@ class Strings:
                             for lang in self._translator.db.get(
                                 __name__,
                                 "lang",
-                                "en",
+                                "uk",
                             ).split(" ")
                             if hasattr(self._mod, f"strings_{lang}")
                             and isinstance(getattr(self._mod, f"strings_{lang}"), dict)
