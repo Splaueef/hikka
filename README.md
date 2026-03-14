@@ -73,6 +73,9 @@ Original project: https://github.com/hikariatama/Hikka
 Licensed under AGPL-3.0.
 
 
+ The original Hikka project is currently archived and no longer actively maintained.
+ This repository exists to keep the project usable and functional. 
+
 
 
 ---
