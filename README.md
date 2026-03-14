@@ -67,6 +67,14 @@ Over time, this repository may also include **independent updates that do not ex
 
 If you want the **official project**, please refer to the original Hikka sources.
 
+
+This project is a modified version of Hikka.
+Original project: https://github.com/hikariatama/Hikka
+Licensed under AGPL-3.0.
+
+
+
+
 ---
 
 ## Warning
