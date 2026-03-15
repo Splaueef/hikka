@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @loader.tds
 class HikkaBackupMod(loader.Module):
-    """Handles database and modules backups"""
+    """Керує резервними копіями бази даних і модулів."""
 
     strings = {"name": "HikkaBackup"}
 

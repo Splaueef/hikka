@@ -143,7 +143,7 @@ class Brainfuck:
 
 @loader.tds
 class Evaluator(loader.Module):
-    """Evaluates code in various languages"""
+    """Виконує (оцінює) код різними мовами програмування."""
 
     strings = {"name": "Evaluator"}
 

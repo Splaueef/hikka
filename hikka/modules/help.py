@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @loader.tds
 class Help(loader.Module):
-    """Shows help for modules and commands"""
+    """Показує довідку для модулів і команд."""
 
     strings = {"name": "Help"}
 
@@ -83,7 +83,7 @@ class Help(loader.Module):
         )
 
     def find_aliases(self, command: str) -> list:
-        """Find aliases for command"""
+        """Знаходить псевдоніми (аліаси) для команди."""
         aliases = []
         _command = self.allmodules.commands[command]
         if getattr(_command, "alias", None) and not (

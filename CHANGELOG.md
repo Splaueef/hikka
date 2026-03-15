@@ -6,6 +6,12 @@
 - Completely remove UnitHeta support, sideload it from the official repo if needed.
 - After this commit repo will be archived and all development will be stopped.
 
+
+## 🌑 Hikka 1.6.4l
+
+- add mod note
+- odd uk lok
+
 ## 🌑 Hikka 1.6.3
 
 - Add argument `item_type` to `db.pointer` to provide interface for NamedTuple objects

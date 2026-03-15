@@ -34,7 +34,7 @@ from ..security import (
 
 @loader.tds
 class HikkaSecurityMod(loader.Module):
-    """Control security settings"""
+    """Керує налаштуваннями безпеки. 🔒"""
 
     strings = {"name": "HikkaSecurity"}
 
@@ -84,13 +84,13 @@ class HikkaSecurityMod(loader.Module):
         ):
             await call.answer(
                 (
-                    "Security value set but not applied. Consider enabling this value"
+                    "Значення безпеки встановлено, але не застосовано. Рекомендується увімкнути це значення."
                     f" in .{'inlinesec' if is_inline else 'security'}"
                 ),
                 show_alert=True,
             )
         else:
-            await call.answer("Security value set!")
+            await call.answer("Значення безпеки встановлено! 🔒")
 
         await call.edit(
             self.strings("permissions").format(

@@ -14,7 +14,7 @@ from ..inline.types import InlineQuery
 
 @loader.tds
 class HikkaInfoMod(loader.Module):
-    """Show userbot info"""
+    """Показує інформацію про юзербота."""
 
     strings = {"name": "HikkaInfo"}
 

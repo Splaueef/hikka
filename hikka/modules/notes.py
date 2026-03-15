@@ -23,7 +23,7 @@ logger = logging.getLogger("friendly-telegram.modules.notes")
 
 @loader.tds
 class NotesMod(loader.Module):
-    """Stores global notes (aka snips)"""
+    """Зберігає глобальні нотатки (також відомі як «snips»)."""
     strings = {
         "name": "Notes",
         "what_note": "<b>Яку нотатку потрібно показати?</b>",
@@ -41,7 +41,7 @@ class NotesMod(loader.Module):
     }
 
     async def findnotecmd(self, message):
-        """Gets the note specified"""
+        """Отримує вказану нотатку."""
         args = utils.get_args(message)
         if not args:
             await utils.answer(message, self.strings("what_note", message))
@@ -61,7 +61,7 @@ class NotesMod(loader.Module):
         )
 
     async def notecmd(self, message):
-        """Gets the note specified"""
+        """Отримує вказану нотатку."""
         args = utils.get_args(message)
         if not args:
             await utils.answer(message, self.strings("what_note", message))
@@ -83,7 +83,7 @@ class NotesMod(loader.Module):
         )
 
     async def delallnotescmd(self, message):
-        """Deletes all the saved notes"""
+        """Видаляє всі збережені нотатки."""
         if not self._db.get("friendly-telegram.modules.notes", "notes", {}):
             await utils.answer(message, self.strings("delnotes_none", message))
             return
@@ -91,7 +91,7 @@ class NotesMod(loader.Module):
         await utils.answer(message, self.strings("delnotes_done", message))
 
     async def savecmd(self, message):
-        """Save a new note. Must be used in reply with one parameter (note name)"""
+        """Зберігає нову нотатку. Потрібно використовувати у відповіді на повідомлення з одним параметром (назва нотатки)."""
         args = utils.get_args(message)
         if not args:
             await utils.answer(message, self.strings("what_name", message))
@@ -118,7 +118,7 @@ class NotesMod(loader.Module):
         await utils.answer(message, str(self.strings("saved", message)).format(args[0]))
 
     async def delnotecmd(self, message):
-        """Deletes a note, specified by note name"""
+        """Видаляє нотатку, вказану за назвою."""
         args = utils.get_args(message)
         if not args:
             await utils.answer(message, self.strings("delnote_args", message))
@@ -135,7 +135,7 @@ class NotesMod(loader.Module):
             self._db.set("friendly-telegram.modules.notes", "notes", old)
 
     async def notescmd(self, message):
-        """List the saved notes"""
+        """Показує список збережених нотаток."""
         if not self._db.get("friendly-telegram.modules.notes", "notes", {}):
             await utils.answer(message, self.strings("notes_none", message))
             return

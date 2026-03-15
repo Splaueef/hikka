@@ -27,7 +27,7 @@ NUM_ROWS = 5
 
 @loader.tds
 class HikkaConfigMod(loader.Module):
-    """Interactive configurator for Hikka Userbot"""
+    """Інтерактивний конфігуратор для юзербота Hikka."""
 
     strings = {"name": "HikkaConfig"}
 
