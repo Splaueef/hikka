@@ -1,4 +1,0 @@
-heroku-tl-new==1.7.2
-Pillow
-
-# Python 3.9+
