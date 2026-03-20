@@ -225,11 +225,14 @@ def gen_port(cfg: str = "port", no8080: bool = False) -> int:
     return port
 
 
-def parse_arguments() -> dict:
+ddef parse_arguments() -> dict:
     """
     Parses the arguments
     :returns: Dictionary with arguments
     """
+    # Примусово встановлюємо рівень логування на WARNING для всіх модулів
+    logging.basicConfig(level=logging.WARNING)
+    
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--port",
@@ -299,8 +302,25 @@ def parse_arguments() -> dict:
         default=True,
         help="Do not print colorful output using ANSI escapes",
     )
+    
+    # Додаємо прапорець для дебагу, якщо він раптом знадобиться (default=False)
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        action="store_true",
+        default=False,
+        help="Enable debug logging",
+    )
+
     arguments = parser.parse_args()
-    logging.debug(arguments)
+    
+    # Змінюємо рівень логування, якщо прапорець --debug НЕ передано
+    if not arguments.debug:
+        logging.getLogger().setLevel(logging.WARNING)
+    else:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    logging.info("Arguments parsed successfully")
     return arguments
 
 
