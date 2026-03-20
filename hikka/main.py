@@ -225,7 +225,7 @@ def gen_port(cfg: str = "port", no8080: bool = False) -> int:
     return port
 
 
-ddef parse_arguments() -> dict:
+def parse_arguments() -> dict:
     """
     Parses the arguments
     :returns: Dictionary with arguments
