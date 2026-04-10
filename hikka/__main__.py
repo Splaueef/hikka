@@ -11,6 +11,10 @@ import os
 import subprocess
 import sys
 
+REQUIREMENTS_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
+)
+
 if (
     getpass.getuser() == "root"
     and "--root" not in " ".join(sys.argv)
@@ -33,13 +37,30 @@ def deps():
             sys.executable,
             "-m",
             "pip",
+            "uninstall",
+            "-y",
+            "telethon",
+            "telethon-mod",
+            "hikka-tl",
+            "hikka-tl-new",
+            "pyrogram",
+            "hikka-pyro",
+            "hikka-pyro-new",
+        ],
+        check=False,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
             "install",
             "--upgrade",
             "-q",
             "--disable-pip-version-check",
             "--no-warn-script-location",
             "-r",
-            "requirements.txt",
+            REQUIREMENTS_PATH,
         ],
         check=True,
     )

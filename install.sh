@@ -113,7 +113,7 @@ if echo "$OSTYPE" | grep -qE '^linux-gnu.*'; then
 	runout "$SUDO_CMD $PKGMGR python$PYVER-pip"
 	runout "$SUDO_CMD $PKGMGR python3 python3-pip git python3-dev \
 		libwebp-dev libz-dev libjpeg-dev libopenjp2-7 libtiff5 \
-		ffmpeg imamgemagick libffi-dev libcairo2"
+		ffmpeg imagemagick libffi-dev libcairo2"
 elif echo "$OSTYPE" | grep -qE '^linux-android.*'; then
 	runout "$SUDO_CMD $PKGMGR openssl libjpeg-turbo libwebp libffi libcairo build-essential libxslt libiconv git ncurses-utils"
 elif echo "$OSTYPE" | grep -qE '^darwin.*'; then
