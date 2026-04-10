@@ -11,8 +11,6 @@ import os
 import subprocess
 import sys
 
-from ._internal import restart
-
 if (
     getpass.getuser() == "root"
     and "--root" not in " ".join(sys.argv)
@@ -45,6 +43,12 @@ def deps():
         ],
         check=True,
     )
+
+
+def restart():
+    from ._internal import restart as _restart
+
+    _restart()
 
 
 if sys.version_info < (3, 8, 0):
