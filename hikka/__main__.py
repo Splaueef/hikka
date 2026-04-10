@@ -88,10 +88,6 @@ else:
             if tuple(map(int, hikkatl.__version__.split("."))) < (2, 0, 4):
                 raise ImportError
 
-            from hikkatl.tl.functions.payments import GetStarGiftsRequest
-
-            del GetStarGiftsRequest
-
             import hikkapyro
 
             if tuple(map(int, hikkapyro.__version__.split("."))) < (2, 0, 103):
