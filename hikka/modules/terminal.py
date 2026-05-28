@@ -32,6 +32,7 @@ import tempfile
 import time
 import typing
 import uuid
+from pathlib import Path
 
 import hikkatl
 
@@ -326,6 +327,10 @@ class TerminalMod(loader.Module):
         "history_limit_cfg": (
             "How many terminal commands to keep in history. 0 disables history"
         ),
+        "scripts_poll_cfg": "How often terminal scripts poll watched files, in seconds",
+        "scripts_output_limit_cfg": (
+            "Maximum characters from a script command to send to Telegram"
+        ),
         "what_to_kill": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Reply to a terminal command to terminate it</b>"
         ),
@@ -404,6 +409,47 @@ class TerminalMod(loader.Module):
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Specify time like</b> "
             "<code>30m</code>, <code>2h</code>, <code>1d</code> <b>or</b> <code>off</code>"
         ),
+        "script_usage": (
+            "<emoji document_id=5472111548572900003>🤖</emoji> <b>Terminal scripts</b>\n"
+            "<code>.ts add &lt;name&gt; = watch dir:/path on:change -> cat $file |> notify telegram -100123</code>\n"
+            '<code>.ts add &lt;name&gt; = on time:every 5min -> run "date" |> notify me</code>\n'
+            "<code>.ts list|show|start|stop|del &lt;name&gt;</code>"
+        ),
+        "script_saved": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
+            "<code>{}</code> <b>saved and started</b>"
+        ),
+        "script_deleted": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
+            "<code>{}</code> <b>deleted</b>"
+        ),
+        "script_started": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
+            "<code>{}</code> <b>started</b>"
+        ),
+        "script_stopped": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
+            "<code>{}</code> <b>stopped</b>"
+        ),
+        "script_not_found": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Script not found:</b> "
+            "<code>{}</code>"
+        ),
+        "script_invalid": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Invalid script:</b> "
+            "<code>{}</code>"
+        ),
+        "scripts_empty": (
+            "<emoji document_id=5472111548572900003>🤖</emoji> <b>No terminal scripts saved</b>"
+        ),
+        "scripts_list": (
+            "<emoji document_id=5472111548572900003>🤖</emoji> <b>Terminal scripts:</b>\n{}"
+        ),
+        "script_item": "{} <code>{}</code> — <code>{}</code>",
+        "script_show": (
+            "<emoji document_id=5472111548572900003>🤖</emoji> <b>Script</b> "
+            "<code>{}</code> <b>({})</b>\n<blockquote>{}</blockquote>"
+        ),
         "_cmd_doc_apt": "Shorthand for '.terminal apt'",
         "_cmd_doc_cd": "[path] - Change persistent terminal directory",
         "_cmd_doc_history": (
@@ -416,6 +462,9 @@ class TerminalMod(loader.Module):
         "_cmd_doc_terminalmode": (
             "<time|off> - Enable terminal mode in current chat (alias: .t-rg). "
             "Unknown dot-commands will be executed as shell commands"
+        ),
+        "_cmd_doc_termscript": (
+            "add|list|show|start|stop|del - Manage saved background terminal scripts (alias: .ts)"
         ),
         "_cmd_doc_terminate": (
             "[-f to force kill] - Use in reply to send SIGTERM to a process"
@@ -443,8 +492,22 @@ class TerminalMod(loader.Module):
                 lambda: self.strings("history_limit_cfg"),
                 validator=loader.validators.Integer(minimum=0),
             ),
+            loader.ConfigValue(
+                "SCRIPTS_POLL_INTERVAL",
+                2,
+                lambda: self.strings("scripts_poll_cfg"),
+                validator=loader.validators.Integer(minimum=1),
+            ),
+            loader.ConfigValue(
+                "SCRIPTS_OUTPUT_LIMIT",
+                3500,
+                lambda: self.strings("scripts_output_limit_cfg"),
+                validator=loader.validators.Integer(minimum=256, maximum=4096),
+            ),
         )
         self.activecmds = {}
+        self._script_tasks = {}
+        self._script_snapshots = {}
 
     def _default_cwd(self) -> str:
         return os.path.abspath(utils.get_base_dir())
@@ -610,6 +673,399 @@ class TerminalMod(loader.Module):
         state = self._terminal_mode_state()
         state.pop(str(utils.get_chat_id(message)), None)
         self.set("terminal_mode", state)
+
+    async def client_ready(self):
+        self._restart_enabled_scripts()
+
+    async def on_unload(self):
+        self._stop_all_scripts()
+
+    def _get_scripts(self) -> typing.Dict[str, dict]:
+        scripts = self.get("scripts", {})
+        return scripts if isinstance(scripts, dict) else {}
+
+    def _save_scripts(self, scripts: typing.Dict[str, dict]):
+        self.set("scripts", scripts)
+
+    def _restart_enabled_scripts(self):
+        self._stop_all_scripts()
+        for name, script in self._get_scripts().items():
+            if script.get("enabled", True):
+                self._start_script(name, script)
+
+    def _stop_all_scripts(self):
+        for task in list(self._script_tasks.values()):
+            task.cancel()
+        self._script_tasks.clear()
+        self._script_snapshots.clear()
+
+    def _stop_script(self, name: str):
+        task = self._script_tasks.pop(name, None)
+        if task:
+            task.cancel()
+        self._script_snapshots.pop(name, None)
+
+    def _start_script(self, name: str, script: dict):
+        self._stop_script(name)
+        self._script_tasks[name] = asyncio.ensure_future(
+            self._script_loop(name, script)
+        )
+
+    @staticmethod
+    def _split_pipeline(pipeline: str) -> typing.List[str]:
+        return [
+            part.strip()
+            for part in re.split(r"\s*(?:\|>|\+)\s*", pipeline)
+            if part.strip()
+        ]
+
+    @staticmethod
+    def _parse_script_interval(value: str) -> int:
+        value = value.strip().lower()
+        match = re.fullmatch(
+            r"(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hour|hours)?",
+            value,
+        )
+        if not match:
+            return 0
+
+        amount = int(match.group(1))
+        suffix = match.group(2) or "s"
+        if suffix.startswith("h"):
+            return amount * 60 * 60
+        if suffix.startswith("m"):
+            return amount * 60
+        return amount
+
+    def _parse_terminal_script(self, source: str) -> dict:
+        source = source.strip()
+        if "->" not in source:
+            raise ValueError("missing -> action separator")
+
+        head, pipeline = map(str.strip, source.split("->", 1))
+        if not head or not pipeline:
+            raise ValueError("empty trigger or action")
+
+        lowered = head.lower()
+        if lowered.startswith("watch "):
+            return self._parse_watch_script(source, head, pipeline)
+
+        if lowered.startswith("on time:every "):
+            interval_text = head[len("on time:every ") :].strip()
+            interval = self._parse_script_interval(interval_text)
+            if not interval:
+                raise ValueError("invalid time interval")
+            return {
+                "type": "time",
+                "interval": interval,
+                "pipeline": pipeline,
+                "source": source,
+            }
+
+        if lowered.startswith("schedule every "):
+            interval_text = head[len("schedule every ") :].strip()
+            interval = self._parse_script_interval(interval_text)
+            if not interval:
+                raise ValueError("invalid time interval")
+            return {
+                "type": "time",
+                "interval": interval,
+                "pipeline": pipeline,
+                "source": source,
+            }
+
+        raise ValueError(
+            "supported triggers: watch file:/path, watch dir:/path, on time:every <interval>"
+        )
+
+    def _parse_watch_script(self, source: str, head: str, pipeline: str) -> dict:
+        match = re.fullmatch(
+            r"watch\s+(file|dir):(.+?)\s+on:([\w-]+)",
+            head,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            raise ValueError("watch syntax: watch file:/path on:change -> ...")
+
+        kind, path, event = match.groups()
+        event = event.lower()
+        if event not in {"change", "new-file", "delete", "any"}:
+            raise ValueError("watch events: change, new-file, delete, any")
+
+        return {
+            "type": "watch",
+            "kind": kind.lower(),
+            "path": self._resolve_path(path.strip().strip("\"'")),
+            "event": event,
+            "pipeline": pipeline,
+            "source": source,
+        }
+
+    def _script_snapshot(
+        self, script: dict
+    ) -> typing.Dict[str, typing.Tuple[int, int]]:
+        target = Path(script["path"])
+        paths = []
+        if script["kind"] == "file":
+            paths = [target]
+        elif target.is_dir():
+            paths = [path for path in target.rglob("*") if path.is_file()]
+
+        snapshot = {}
+        for path in paths:
+            with contextlib.suppress(OSError):
+                stat = path.stat()
+                snapshot[str(path)] = (stat.st_mtime_ns, stat.st_size)
+        return snapshot
+
+    @staticmethod
+    def _watch_changes(
+        old: typing.Dict[str, typing.Tuple[int, int]],
+        new: typing.Dict[str, typing.Tuple[int, int]],
+        event: str,
+    ) -> typing.List[typing.Tuple[str, str]]:
+        changes = []
+        for path, stat in new.items():
+            if path not in old:
+                changes.append(("new-file", path))
+            elif old[path] != stat:
+                changes.append(("change", path))
+
+        for path in old:
+            if path not in new:
+                changes.append(("delete", path))
+
+        if event == "any":
+            return changes
+        if event == "change":
+            return [change for change in changes if change[0] in {"change", "new-file"}]
+        return [change for change in changes if change[0] == event]
+
+    def _script_format_vars(
+        self, text: str, variables: dict, quote: bool = False
+    ) -> str:
+        for key, value in variables.items():
+            value = str(value)
+            text = text.replace(f"${key}", shlex.quote(value) if quote else value)
+        return text
+
+    async def _script_shell(
+        self, command: str, variables: dict, stdin: str = ""
+    ) -> str:
+        command = self._script_format_vars(command, variables, quote=True)
+        process = await asyncio.create_subprocess_exec(
+            self._shell(),
+            "-c",
+            command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=self._get_cwd(),
+        )
+        stdout, stderr = await process.communicate(stdin.encode())
+        output = stdout.decode(errors="replace")
+        errors = stderr.decode(errors="replace")
+        if process.returncode and errors:
+            output += ("\n" if output else "") + errors
+        return output[-int(self.config["SCRIPTS_OUTPUT_LIMIT"]) :]
+
+    async def _script_notify(self, stage: str, variables: dict, payload: str):
+        stage = self._script_format_vars(stage, variables)
+        args = shlex.split(stage)
+        if len(args) < 2:
+            raise ValueError('notify syntax: notify telegram <chat> [msg:"text"]')
+
+        chat = args[1]
+        if chat.lower() in {"telegram", "tg"}:
+            if len(args) < 3:
+                raise ValueError("notify telegram requires chat id/user/channel")
+            chat = args[2]
+
+        if chat.lstrip("-").isdigit():
+            chat = int(chat)
+
+        message = payload.strip()
+        for arg in args[2:]:
+            if arg.startswith("msg:"):
+                message = arg.split(":", 1)[1]
+                break
+
+        if not message:
+            message = self.strings("done")
+
+        await self._client.send_message(chat, message[:4096])
+
+    async def _run_script_pipeline(self, name: str, script: dict, variables: dict):
+        payload = ""
+        for stage in self._split_pipeline(script["pipeline"]):
+            if stage.startswith("notify "):
+                await self._script_notify(stage, variables, payload)
+                continue
+
+            if stage.startswith("run "):
+                command = stage[4:].strip()
+                if (
+                    len(command) >= 2
+                    and command[0] == command[-1]
+                    and command[0] in {"'", '"'}
+                ):
+                    command = command[1:-1]
+            else:
+                command = stage
+
+            if command:
+                payload = await self._script_shell(command, variables, payload)
+
+    async def _script_loop(self, name: str, script: dict):
+        try:
+            if script["type"] == "watch":
+                self._script_snapshots[name] = self._script_snapshot(script)
+                while True:
+                    await asyncio.sleep(int(self.config["SCRIPTS_POLL_INTERVAL"]))
+                    old = self._script_snapshots.get(name, {})
+                    new = self._script_snapshot(script)
+                    self._script_snapshots[name] = new
+                    for event, path in self._watch_changes(old, new, script["event"]):
+                        await self._run_script_pipeline(
+                            name,
+                            script,
+                            {
+                                "script": name,
+                                "event": event,
+                                "file": path,
+                                "path": path,
+                                "watched": script["path"],
+                            },
+                        )
+            elif script["type"] == "time":
+                while True:
+                    await asyncio.sleep(int(script["interval"]))
+                    await self._run_script_pipeline(
+                        name,
+                        script,
+                        {"script": name, "event": "time", "file": "", "path": ""},
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Terminal script %s failed", name)
+            await asyncio.sleep(10)
+            saved = self._get_scripts().get(name)
+            if saved and saved.get("enabled", True):
+                self._start_script(name, saved)
+
+    @loader.command(alias="ts")
+    async def termscriptcmd(self, message):
+        """add|list|show|start|stop|del - Manage saved background terminal scripts (alias: .ts)"""
+        args = utils.get_args_raw(message).strip()
+        if not args:
+            await utils.answer(message, self.strings("script_usage"))
+            return
+
+        action, _, rest = args.partition(" ")
+        action = action.lower()
+        scripts = self._get_scripts()
+
+        if action == "list":
+            if not scripts:
+                await utils.answer(message, self.strings("scripts_empty"))
+                return
+            await utils.answer(
+                message,
+                self.strings("scripts_list").format(
+                    "\n".join(
+                        self.strings("script_item").format(
+                            "🟢" if data.get("enabled", True) else "⚪️",
+                            utils.escape_html(name),
+                            utils.escape_html(data.get("source", "")),
+                        )
+                        for name, data in scripts.items()
+                    )
+                ),
+            )
+            return
+
+        if action == "add":
+            name, sep, source = rest.partition("=")
+            name = name.strip()
+            source = source.strip() if sep else ""
+            if not name or not source:
+                await utils.answer(message, self.strings("script_usage"))
+                return
+            try:
+                script = self._parse_terminal_script(source)
+            except ValueError as e:
+                await utils.answer(
+                    message,
+                    self.strings("script_invalid").format(utils.escape_html(str(e))),
+                )
+                return
+            script["enabled"] = True
+            scripts[name] = script
+            self._save_scripts(scripts)
+            self._start_script(name, script)
+            await utils.answer(
+                message,
+                self.strings("script_saved").format(utils.escape_html(name)),
+            )
+            return
+
+        name = rest.strip()
+        if action in {"show", "start", "stop", "del", "delete", "rm"} and not name:
+            await utils.answer(message, self.strings("script_usage"))
+            return
+        if (
+            action in {"show", "start", "stop", "del", "delete", "rm"}
+            and name not in scripts
+        ):
+            await utils.answer(
+                message,
+                self.strings("script_not_found").format(utils.escape_html(name)),
+            )
+            return
+
+        if action == "show":
+            await utils.answer(
+                message,
+                self.strings("script_show").format(
+                    utils.escape_html(name),
+                    "enabled" if scripts[name].get("enabled", True) else "disabled",
+                    utils.escape_html(scripts[name].get("source", "")),
+                ),
+            )
+            return
+
+        if action == "start":
+            scripts[name]["enabled"] = True
+            self._save_scripts(scripts)
+            self._start_script(name, scripts[name])
+            await utils.answer(
+                message,
+                self.strings("script_started").format(utils.escape_html(name)),
+            )
+            return
+
+        if action == "stop":
+            scripts[name]["enabled"] = False
+            self._save_scripts(scripts)
+            self._stop_script(name)
+            await utils.answer(
+                message,
+                self.strings("script_stopped").format(utils.escape_html(name)),
+            )
+            return
+
+        if action in {"del", "delete", "rm"}:
+            scripts.pop(name)
+            self._save_scripts(scripts)
+            self._stop_script(name)
+            await utils.answer(
+                message,
+                self.strings("script_deleted").format(utils.escape_html(name)),
+            )
+            return
+
+        await utils.answer(message, self.strings("script_usage"))
 
     @loader.command(alias="t")
     async def terminalcmd(self, message):
