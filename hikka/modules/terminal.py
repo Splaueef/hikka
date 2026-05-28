@@ -51,6 +51,41 @@ def clean_terminal_output(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
 
 
+def split_text_for_telegram(text: str, limit: int = 3500) -> typing.List[str]:
+    """Split terminal output into Telegram-safe chunks preserving line breaks."""
+    text = str(text)
+    if not text:
+        return [""]
+
+    chunks = []
+    current = ""
+
+    for line in text.splitlines(keepends=True):
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+
+        if len(current) + len(line) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current += line
+
+    if current or not chunks:
+        chunks.append(current)
+
+    return chunks
+
+
+def format_output_page(title: str, body: str, page: int, total: int) -> str:
+    suffix = f" <code>{page}/{total}</code>" if total > 1 else ""
+    body = utils.escape_html(body) or " "
+    return f"{title}{suffix}\n<blockquote>{body}</blockquote>"
+
+
 def hash_msg(message):
     return f"{str(utils.get_chat_id(message))}/{str(message.id)}"
 
@@ -183,6 +218,38 @@ class MessageEditor:
             self.cwd = cwd
         self.state = 4
         await self.redraw()
+        await self.send_full_output()
+
+    def _full_output(self) -> typing.Tuple[str, str]:
+        if self.rc not in (None, 0) and self.stderr:
+            return self.strings("stderr"), self.stderr
+
+        return self.strings("stdout"), self.stdout
+
+    async def send_full_output(self):
+        label, output = self._full_output()
+        if not output:
+            return
+
+        preview_limit = 2048 if label == self.strings("stdout") else 1024
+        if len(output) <= preview_limit:
+            return
+
+        command = (
+            self.command if len(self.command) <= 256 else f"{self.command[:253]}..."
+        )
+        title = (
+            "<emoji document_id=5472111548572900003>📼</emoji> "
+            f"<b>Full terminal output:</b> <code>{utils.escape_html(command)}</code>"
+        )
+        chunks = split_text_for_telegram(output)
+        for index, chunk in enumerate(chunks, 1):
+            await self.message.client.send_message(
+                self.message.peer_id,
+                format_output_page(title, chunk, index, len(chunks)),
+                reply_to=getattr(self.request_message, "id", None),
+                link_preview=False,
+            )
 
     def update_process(self, process, input_writer=None):
         pass
@@ -194,8 +261,12 @@ class SudoMessageEditor(MessageEditor):
     WRONG_PASS = r"\[sudo\] password for (.*): Sorry, try again\."
     TOO_MANY_TRIES = (r"\[sudo\] password for (.*): sudo: [0-9]+ incorrect password attempts")  # fmt: skip
     GENERIC_AUTH_PROMPTS = (
-        re.compile(r"(?im)(?:^|[\r\n])[^\r\n]{0,160}(?:password|passphrase|pin|otp|verification code|2fa)[^\r\n:]{0,160}:\s*$"),
-        re.compile(r"(?im)(?:^|[\r\n])[^\r\n]{0,160}(?:continue connecting|yes/no(?:/\[fingerprint\])?)[^\r\n?]{0,160}\?\s*$"),
+        re.compile(
+            r"(?im)(?:^|[\r\n])[^\r\n]{0,160}(?:password|passphrase|pin|otp|verification code|2fa)[^\r\n:]{0,160}:\s*$"
+        ),
+        re.compile(
+            r"(?im)(?:^|[\r\n])[^\r\n]{0,160}(?:continue connecting|yes/no(?:/\[fingerprint\])?)[^\r\n?]{0,160}\?\s*$"
+        ),
     )
 
     def __init__(
@@ -320,8 +391,12 @@ class SudoMessageEditor(MessageEditor):
             self.state = 0
             handled = True
 
-        if is_stderr and len(lines) > 1 and (
-            re.fullmatch(self.TOO_MANY_TRIES, lastline) and self.state in {1, 3, 4}
+        if (
+            is_stderr
+            and len(lines) > 1
+            and (
+                re.fullmatch(self.TOO_MANY_TRIES, lastline) and self.state in {1, 3, 4}
+            )
         ):
             logger.debug("password wrong lots of times")
             await utils.answer(self.message, self.strings("auth_locked"))
@@ -423,7 +498,7 @@ class TerminalMod(loader.Module):
         ),
         "scripts_poll_cfg": "How often terminal scripts poll watched files, in seconds",
         "scripts_output_limit_cfg": (
-            "Maximum characters from a script command to send to Telegram"
+            "Legacy option kept for compatibility; script output is split into messages"
         ),
         "what_to_kill": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Reply to a terminal command to terminate it</b>"
@@ -1085,7 +1160,7 @@ class TerminalMod(loader.Module):
         errors = stderr.decode(errors="replace")
         if process.returncode and errors:
             output += ("\n" if output else "") + errors
-        return output[-int(self.config["SCRIPTS_OUTPUT_LIMIT"]) :]
+        return clean_terminal_output(output)
 
     async def _script_notify(self, stage: str, variables: dict, payload: str):
         stage = self._script_format_vars(stage, variables)
@@ -1111,7 +1186,28 @@ class TerminalMod(loader.Module):
         if not message:
             message = self.strings("done")
 
-        await self._client.send_message(chat, message[:4096])
+        script_name = str(variables.get("script", ""))
+        if len(script_name) > 128:
+            script_name = f"{script_name[:125]}..."
+        title = (
+            "<emoji document_id=5472111548572900003>🤖</emoji> "
+            f"<b>Terminal script</b> <code>{utils.escape_html(script_name)}</code>"
+        )
+        if variables.get("event"):
+            title += f" <b>event:</b> <code>{utils.escape_html(str(variables['event']))}</code>"
+        if variables.get("file"):
+            file_name = str(variables["file"])
+            if len(file_name) > 256:
+                file_name = f"{file_name[:253]}..."
+            title += f"\n<b>File:</b> <code>{utils.escape_html(file_name)}</code>"
+
+        chunks = split_text_for_telegram(message)
+        for index, chunk in enumerate(chunks, 1):
+            await self._client.send_message(
+                chat,
+                format_output_page(title, chunk, index, len(chunks)),
+                link_preview=False,
+            )
 
     async def _run_script_pipeline(self, name: str, script: dict, variables: dict):
         payload = ""
@@ -1467,6 +1563,7 @@ class TerminalMod(loader.Module):
             def input_writer(data: bytes):
                 if master_fd is not None:
                     os.write(master_fd, data)
+
         else:
             sproc = await asyncio.create_subprocess_exec(
                 self._shell(),
