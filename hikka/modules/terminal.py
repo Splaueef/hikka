@@ -27,7 +27,10 @@ import contextlib
 import logging
 import os
 import re
+import shlex
+import tempfile
 import typing
+import uuid
 
 import hikkatl
 
@@ -76,6 +79,7 @@ class MessageEditor:
         config,
         strings,
         request_message,
+        cwd: typing.Optional[str] = None,
     ):
         self.message = message
         self.command = command
@@ -86,6 +90,7 @@ class MessageEditor:
         self.config = config
         self.strings = strings
         self.request_message = request_message
+        self.cwd = cwd
 
     async def update_stdout(self, stdout):
         self.stdout = stdout
@@ -98,13 +103,21 @@ class MessageEditor:
     async def redraw(self):
         text = self.strings("running").format(utils.escape_html(self.command))  # fmt: skip
 
+        if self.cwd:
+            text += self.strings("cwd").format(utils.escape_html(self.cwd))
+
         if self.rc is not None:
             text += self.strings("finished").format(utils.escape_html(str(self.rc)))
 
+        stdout = utils.escape_html(self.stdout[max(len(self.stdout) - 2048, 0) :])
         text += self.strings("stdout")
-        text += utils.escape_html(self.stdout[max(len(self.stdout) - 2048, 0) :])
+        text += self.strings("quote").format(stdout or " ")
         stderr = utils.escape_html(self.stderr[max(len(self.stderr) - 1024, 0) :])
-        text += (self.strings("stderr") + stderr) if stderr else ""
+        text += (
+            self.strings("stderr") + self.strings("quote").format(stderr)
+            if stderr
+            else ""
+        )
         text += self.strings("end")
 
         with contextlib.suppress(hikkatl.errors.rpcerrorlist.MessageNotModifiedError):
@@ -115,8 +128,10 @@ class MessageEditor:
                 logger.error(text)
         # The message is never empty due to the template header
 
-    async def cmd_ended(self, rc):
+    async def cmd_ended(self, rc, cwd: typing.Optional[str] = None):
         self.rc = rc
+        if cwd:
+            self.cwd = cwd
         self.state = 4
         await self.redraw()
 
@@ -130,8 +145,18 @@ class SudoMessageEditor(MessageEditor):
     WRONG_PASS = r"\[sudo\] password for (.*): Sorry, try again\."
     TOO_MANY_TRIES = (r"\[sudo\] password for (.*): sudo: [0-9]+ incorrect password attempts")  # fmt: skip
 
-    def __init__(self, message, command, config, strings, request_message):
-        super().__init__(message, command, config, strings, request_message)
+    def __init__(
+        self,
+        message,
+        command,
+        config,
+        strings,
+        request_message,
+        cwd=None,
+        tg_id=None,
+    ):
+        super().__init__(message, command, config, strings, request_message, cwd)
+        self._tg_id = tg_id
         self.process = None
         self.state = 0
         self.authmsg = None
@@ -250,30 +275,26 @@ class RawMessageEditor(SudoMessageEditor):
         strings,
         request_message,
         show_done=False,
+        cwd=None,
+        tg_id=None,
     ):
-        super().__init__(message, command, config, strings, request_message)
+        super().__init__(message, command, config, strings, request_message, cwd, tg_id)
         self.show_done = show_done
 
     async def redraw(self):
         logger.debug(self.rc)
 
         if self.rc is None:
-            text = (
-                "<code>"
-                + utils.escape_html(self.stdout[max(len(self.stdout) - 4095, 0) :])
-                + "</code>"
+            text = self.strings("quote").format(
+                utils.escape_html(self.stdout[max(len(self.stdout) - 4095, 0) :]) or " "
             )
         elif self.rc == 0:
-            text = (
-                "<code>"
-                + utils.escape_html(self.stdout[max(len(self.stdout) - 4090, 0) :])
-                + "</code>"
+            text = self.strings("quote").format(
+                utils.escape_html(self.stdout[max(len(self.stdout) - 4090, 0) :]) or " "
             )
         else:
-            text = (
-                "<code>"
-                + utils.escape_html(self.stderr[max(len(self.stderr) - 4095, 0) :])
-                + "</code>"
+            text = self.strings("quote").format(
+                utils.escape_html(self.stderr[max(len(self.stderr) - 4095, 0) :]) or " "
             )
 
         if self.rc is not None and self.show_done:
@@ -297,7 +318,90 @@ class RawMessageEditor(SudoMessageEditor):
 class TerminalMod(loader.Module):
     """Runs commands"""
 
-    strings = {"name": "Terminal"}
+    strings = {
+        "name": "Terminal",
+        "fw_protect": "How long to wait in seconds between edits in commands",
+        "timeout_cfg": "Maximum command runtime in seconds. 0 disables timeout",
+        "history_limit_cfg": (
+            "How many terminal commands to keep in history. 0 disables history"
+        ),
+        "what_to_kill": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Reply to a terminal command to terminate it</b>"
+        ),
+        "kill_fail": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Could not kill process</b>"
+        ),
+        "killed": "<emoji document_id=5210952531676504517>🚫</emoji> <b>Killed</b>",
+        "no_cmd": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>No command is running in that message</b>"
+        ),
+        "running": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji><b> System call</b> <code>{}</code>"
+        ),
+        "cwd": "\n<b>📁 Directory:</b> <code>{}</code>",
+        "finished": "\n<b>Exit code</b> <code>{}</code>",
+        "stdout": "\n<b>📼 Stdout:</b>",
+        "stderr": (
+            "\n\n<b><emoji document_id=5210952531676504517>🚫</emoji> Stderr:</b>"
+        ),
+        "quote": "\n<blockquote>{}</blockquote>",
+        "end": "",
+        "auth_fail": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Authentication failed, please try again</b>"
+        ),
+        "auth_failed": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Authentication failed, please try again</b>"
+        ),
+        "auth_needed": (
+            '<emoji document_id=5472308992514464048>🔐</emoji><a href="tg://user?id={}"> Interactive authentication required</a>'
+        ),
+        "auth_msg": (
+            "<emoji document_id=5472308992514464048>🔐</emoji> <b>Please edit this message to the password for</b> <code>{}</code> <b>to run</b> <code>{}</code>"
+        ),
+        "auth_locked": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Authentication failed, please try again later</b>"
+        ),
+        "auth_ongoing": (
+            "<emoji document_id=5213452215527677338>⏳</emoji> <b>Authenticating...</b>"
+        ),
+        "done": "<emoji document_id=5314250708508220914>✅</emoji> <b>Done</b>",
+        "pwd": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>Current terminal directory:</b> <code>{}</code>"
+        ),
+        "cd": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>Directory changed to:</b> <code>{}</code>"
+        ),
+        "cd_error": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>No such directory:</b> <code>{}</code>"
+        ),
+        "empty_command": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Usage:</b> <code>.t &lt;command&gt;</code>\n<b>Current directory:</b> <code>{}</code>"
+        ),
+        "timeout": "\nCommand timed out after {} seconds and was terminated.",
+        "history_empty": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal history is empty</b>"
+        ),
+        "history": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal history:</b>\n{}"
+        ),
+        "history_item": "<code>{}</code>. <code>{}</code>",
+        "history_invalid": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>No command with this history number</b>"
+        ),
+        "_cmd_doc_apt": "Shorthand for '.terminal apt'",
+        "_cmd_doc_cd": "[path] - Change persistent terminal directory",
+        "_cmd_doc_history": (
+            "Show terminal command history. Use .t !N to rerun an entry"
+        ),
+        "_cmd_doc_pwd": "Show persistent terminal directory",
+        "_cmd_doc_terminal": (
+            "<command> - Execute shell command (alias: .t). Use !N to rerun history item N"
+        ),
+        "_cmd_doc_terminate": (
+            "[-f to force kill] - Use in reply to send SIGTERM to a process"
+        ),
+        "_cls_doc": "Runs commands",
+    }
 
     def __init__(self):
         self.config = loader.ModuleConfig(
@@ -307,27 +411,211 @@ class TerminalMod(loader.Module):
                 lambda: self.strings("fw_protect"),
                 validator=loader.validators.Integer(minimum=0),
             ),
+            loader.ConfigValue(
+                "COMMAND_TIMEOUT",
+                0,
+                lambda: self.strings("timeout_cfg"),
+                validator=loader.validators.Integer(minimum=0),
+            ),
+            loader.ConfigValue(
+                "HISTORY_LIMIT",
+                50,
+                lambda: self.strings("history_limit_cfg"),
+                validator=loader.validators.Integer(minimum=0),
+            ),
         )
         self.activecmds = {}
 
-    @loader.command()
-    async def terminalcmd(self, message):
-        await self.run_command(message, utils.get_args_raw(message))
+    def _default_cwd(self) -> str:
+        return os.path.abspath(utils.get_base_dir())
 
-    @loader.command()
+    def _get_cwd(self) -> str:
+        cwd = os.path.abspath(
+            os.path.expandvars(os.path.expanduser(self.get("cwd", self._default_cwd())))
+        )
+
+        if not os.path.isdir(cwd):
+            cwd = self._default_cwd()
+            self.set("cwd", cwd)
+
+        return cwd
+
+    def _set_cwd(self, cwd: str) -> str:
+        cwd = os.path.abspath(os.path.expandvars(os.path.expanduser(cwd)))
+        self.set("cwd", cwd)
+        return cwd
+
+    def _resolve_path(self, path: str) -> str:
+        path = os.path.expandvars(os.path.expanduser(path or "~"))
+        return path if os.path.isabs(path) else os.path.join(self._get_cwd(), path)
+
+    @staticmethod
+    def _shell() -> str:
+        shell = os.environ.get("SHELL")
+        if shell and os.path.exists(shell):
+            return shell
+
+        return "/bin/bash" if os.path.exists("/bin/bash") else "/bin/sh"
+
+    @staticmethod
+    def _append_sudo_stdin_switch(cmd: str) -> str:
+        if len(cmd.split(" ")) <= 1 or cmd.split(" ")[0] != "sudo":
+            return cmd
+
+        needsswitch = True
+
+        for word in cmd.split(" ", 1)[1].split(" "):
+            if not word or word[0] != "-":
+                break
+
+            if word == "-S":
+                needsswitch = False
+
+        return (
+            " ".join([cmd.split(" ", 1)[0], "-S", cmd.split(" ", 1)[1]])
+            if needsswitch
+            else cmd
+        )
+
+    @staticmethod
+    def _wrap_command(cmd: str, cwd_file: str) -> str:
+        return "\n".join(
+            (
+                cmd,
+                "__hikka_terminal_rc=$?",
+                f"pwd > {shlex.quote(cwd_file)}",
+                "exit $__hikka_terminal_rc",
+            )
+        )
+
+    def _read_tracked_cwd(self, cwd_file: str) -> typing.Optional[str]:
+        try:
+            with open(cwd_file, encoding="utf-8") as file:
+                cwd = file.read().strip()
+        except OSError:
+            return None
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(cwd_file)
+
+        if cwd and os.path.isdir(cwd):
+            return self._set_cwd(cwd)
+
+        return None
+
+    def _get_history(self) -> typing.List[str]:
+        history = self.get("history", [])
+        return history if isinstance(history, list) else []
+
+    def _add_history(self, cmd: str):
+        limit = self.config["HISTORY_LIMIT"]
+        if not limit:
+            return
+
+        history = self._get_history()
+        history.append(cmd)
+        self.set("history", history[-limit:])
+
+    def _history_entry(self, ref: str) -> typing.Optional[str]:
+        if not ref.startswith("!") or not ref[1:].isdigit():
+            return None
+
+        history = self._get_history()
+        index = int(ref[1:]) - 1
+        if index < 0 or index >= len(history):
+            return False
+
+        return history[index]
+
+    @loader.command(alias="t")
+    async def terminalcmd(self, message):
+        """<command> - Execute shell command (alias: .t)"""
+        cmd = utils.get_args_raw(message)
+
+        if not cmd:
+            await utils.answer(
+                message,
+                self.strings("empty_command").format(
+                    utils.escape_html(self._get_cwd())
+                ),
+            )
+            return
+
+        if cmd.startswith("!"):
+            history_cmd = self._history_entry(cmd)
+            if history_cmd is False:
+                await utils.answer(message, self.strings("history_invalid"))
+                return
+
+            if history_cmd:
+                cmd = history_cmd
+
+        self._add_history(cmd)
+        await self.run_command(message, cmd)
+
+    @loader.command(alias="a")
     async def aptcmd(self, message):
+        """Shorthand for '.terminal apt'"""
+        cmd = utils.get_args_raw(message)
+        cwd = self._get_cwd()
         await self.run_command(
             message,
-            ("apt " if os.geteuid() == 0 else "sudo -S apt ")
-            + utils.get_args_raw(message)
-            + " -y",
+            ("apt " if os.geteuid() == 0 else "sudo -S apt ") + cmd + " -y",
             RawMessageEditor(
                 message,
-                f"apt {utils.get_args_raw(message)}",
+                f"apt {cmd}",
                 self.config,
                 self.strings,
                 message,
                 True,
+                cwd,
+                self._tg_id,
+            ),
+        )
+
+    @loader.command(alias="c")
+    async def cdcmd(self, message):
+        """[path] - Change persistent terminal directory"""
+        path = self._resolve_path(utils.get_args_raw(message))
+
+        if not os.path.isdir(path):
+            await utils.answer(
+                message,
+                self.strings("cd_error").format(utils.escape_html(path)),
+            )
+            return
+
+        await utils.answer(
+            message,
+            self.strings("cd").format(utils.escape_html(self._set_cwd(path))),
+        )
+
+    @loader.command(alias="cwd")
+    async def pwdcmd(self, message):
+        """Show persistent terminal directory"""
+        await utils.answer(
+            message,
+            self.strings("pwd").format(utils.escape_html(self._get_cwd())),
+        )
+
+    @loader.command()
+    async def historycmd(self, message):
+        """Show terminal command history. Use .t !N to rerun an entry"""
+        history = self._get_history()
+        if not history:
+            await utils.answer(message, self.strings("history_empty"))
+            return
+
+        await utils.answer(
+            message,
+            self.strings("history").format(
+                "\n".join(
+                    self.strings("history_item").format(
+                        index,
+                        utils.escape_html(cmd),
+                    )
+                    for index, cmd in enumerate(history, 1)
+                )
             ),
         )
 
@@ -337,29 +625,33 @@ class TerminalMod(loader.Module):
         cmd: str,
         editor: typing.Optional[MessageEditor] = None,
     ):
-        if len(cmd.split(" ")) > 1 and cmd.split(" ")[0] == "sudo":
-            needsswitch = True
+        cmd = self._append_sudo_stdin_switch(cmd)
+        cwd = self._get_cwd()
+        cwd_file = os.path.join(
+            tempfile.gettempdir(),
+            f"hikka-terminal-{uuid.uuid4().hex}.cwd",
+        )
 
-            for word in cmd.split(" ", 1)[1].split(" "):
-                if word[0] != "-":
-                    break
-
-                if word == "-S":
-                    needsswitch = False
-
-            if needsswitch:
-                cmd = " ".join([cmd.split(" ", 1)[0], "-S", cmd.split(" ", 1)[1]])
-
-        sproc = await asyncio.create_subprocess_shell(
-            cmd,
+        sproc = await asyncio.create_subprocess_exec(
+            self._shell(),
+            "-c",
+            self._wrap_command(cmd, cwd_file),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=utils.get_base_dir(),
+            cwd=cwd,
         )
 
         if editor is None:
-            editor = SudoMessageEditor(message, cmd, self.config, self.strings, message)
+            editor = SudoMessageEditor(
+                message,
+                cmd,
+                self.config,
+                self.strings,
+                message,
+                cwd,
+                self._tg_id,
+            )
 
         editor.update_process(sproc)
 
@@ -367,7 +659,7 @@ class TerminalMod(loader.Module):
 
         await editor.redraw()
 
-        await asyncio.gather(
+        readers = asyncio.gather(
             read_stream(
                 editor.update_stdout,
                 sproc.stdout,
@@ -380,10 +672,46 @@ class TerminalMod(loader.Module):
             ),
         )
 
-        await editor.cmd_ended(await sproc.wait())
-        del self.activecmds[hash_msg(message)]
+        timed_out = False
+        try:
+            timeout = self.config["COMMAND_TIMEOUT"]
+            try:
+                rc = (
+                    await asyncio.wait_for(sproc.wait(), timeout=timeout)
+                    if timeout
+                    else await sproc.wait()
+                )
+            except asyncio.TimeoutError:
+                timed_out = True
+                sproc.terminate()
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(sproc.wait(), timeout=5)
 
-    @loader.command()
+                if sproc.returncode is None:
+                    sproc.kill()
+                    await sproc.wait()
+
+                rc = sproc.returncode
+
+            await readers
+
+            if timed_out:
+                await editor.update_stderr(
+                    editor.stderr + self.strings("timeout").format(timeout)
+                )
+
+            new_cwd = self._read_tracked_cwd(cwd_file)
+            await editor.cmd_ended(rc, new_cwd)
+        finally:
+            if not readers.done():
+                readers.cancel()
+
+            with contextlib.suppress(OSError):
+                os.remove(cwd_file)
+
+            self.activecmds.pop(hash_msg(message), None)
+
+    @loader.command(aliases=("kill", "stop"))
     async def terminatecmd(self, message):
         if not message.is_reply:
             await utils.answer(message, self.strings("what_to_kill"))
