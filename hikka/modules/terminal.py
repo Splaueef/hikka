@@ -29,6 +29,7 @@ import os
 import re
 import shlex
 import tempfile
+import time
 import typing
 import uuid
 
@@ -388,6 +389,21 @@ class TerminalMod(loader.Module):
         "history_invalid": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>No command with this history number</b>"
         ),
+        "terminal_mode_usage": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Usage:</b> "
+            "<code>.t-rg &lt;time|off&gt;</code>"
+        ),
+        "terminal_mode_enabled": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Terminal mode enabled for {}</b>\n"
+            "<b>Now unknown dot-commands in this chat will be executed as shell commands.</b>"
+        ),
+        "terminal_mode_disabled": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Terminal mode disabled in this chat</b>"
+        ),
+        "terminal_mode_invalid_time": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Specify time like</b> "
+            "<code>30m</code>, <code>2h</code>, <code>1d</code> <b>or</b> <code>off</code>"
+        ),
         "_cmd_doc_apt": "Shorthand for '.terminal apt'",
         "_cmd_doc_cd": "[path] - Change persistent terminal directory",
         "_cmd_doc_history": (
@@ -396,6 +412,10 @@ class TerminalMod(loader.Module):
         "_cmd_doc_pwd": "Show persistent terminal directory",
         "_cmd_doc_terminal": (
             "<command> - Execute shell command (alias: .t). Use !N to rerun history item N"
+        ),
+        "_cmd_doc_terminalmode": (
+            "<time|off> - Enable terminal mode in current chat (alias: .t-rg). "
+            "Unknown dot-commands will be executed as shell commands"
         ),
         "_cmd_doc_terminate": (
             "[-f to force kill] - Use in reply to send SIGTERM to a process"
@@ -527,6 +547,70 @@ class TerminalMod(loader.Module):
 
         return history[index]
 
+    @staticmethod
+    def _extract_time(args: typing.List[str]) -> int:
+        for suffix, quantifier in [
+            ("d", 24 * 60 * 60),
+            ("h", 60 * 60),
+            ("m", 60),
+            ("s", 1),
+        ]:
+            duration = next(
+                (
+                    int(arg.rsplit(suffix, maxsplit=1)[0])
+                    for arg in args
+                    if arg.endswith(suffix)
+                    and arg.rsplit(suffix, maxsplit=1)[0].isdigit()
+                ),
+                None,
+            )
+            if duration is not None:
+                return duration * quantifier
+
+        return 0
+
+    @staticmethod
+    def _format_duration(duration: int) -> str:
+        if duration >= 24 * 60 * 60 and duration % (24 * 60 * 60) == 0:
+            return f"{duration // (24 * 60 * 60)}d"
+
+        if duration >= 60 * 60 and duration % (60 * 60) == 0:
+            return f"{duration // (60 * 60)}h"
+
+        if duration >= 60 and duration % 60 == 0:
+            return f"{duration // 60}m"
+
+        return f"{duration}s"
+
+    def _terminal_mode_state(self) -> typing.Dict[str, int]:
+        state = self.get("terminal_mode", {})
+        return state if isinstance(state, dict) else {}
+
+    def _is_terminal_mode_enabled(self, message: hikkatl.tl.types.Message) -> bool:
+        state = self._terminal_mode_state()
+        chat_id = str(utils.get_chat_id(message))
+        expires = state.get(chat_id)
+
+        if not expires:
+            return False
+
+        if expires <= time.time():
+            state.pop(chat_id, None)
+            self.set("terminal_mode", state)
+            return False
+
+        return True
+
+    def _set_terminal_mode(self, message: hikkatl.tl.types.Message, duration: int):
+        state = self._terminal_mode_state()
+        state[str(utils.get_chat_id(message))] = int(time.time() + duration)
+        self.set("terminal_mode", state)
+
+    def _disable_terminal_mode(self, message: hikkatl.tl.types.Message):
+        state = self._terminal_mode_state()
+        state.pop(str(utils.get_chat_id(message)), None)
+        self.set("terminal_mode", state)
+
     @loader.command(alias="t")
     async def terminalcmd(self, message):
         """<command> - Execute shell command (alias: .t)"""
@@ -552,6 +636,54 @@ class TerminalMod(loader.Module):
 
         self._add_history(cmd)
         await self.run_command(message, cmd)
+
+    @loader.command(alias="t-rg")
+    async def terminalmodecmd(self, message):
+        """<time|off> - Enable terminal mode in current chat (alias: .t-rg)"""
+        args = utils.get_args_raw(message).lower().split()
+
+        if not args:
+            await utils.answer(message, self.strings("terminal_mode_usage"))
+            return
+
+        if args[0] in {"off", "disable", "stop", "0"}:
+            self._disable_terminal_mode(message)
+            await utils.answer(message, self.strings("terminal_mode_disabled"))
+            return
+
+        duration = self._extract_time(args)
+        if not duration:
+            await utils.answer(message, self.strings("terminal_mode_invalid_time"))
+            return
+
+        self._set_terminal_mode(message, duration)
+        await utils.answer(
+            message,
+            self.strings("terminal_mode_enabled").format(
+                utils.escape_html(self._format_duration(duration))
+            ),
+        )
+
+    @loader.watcher(out=True, only_messages=True)
+    async def terminal_mode_watcher(self, message):
+        if not self._is_terminal_mode_enabled(message):
+            return
+
+        prefix = self.get_prefix()
+        text = getattr(message, "raw_text", None) or getattr(message, "message", "")
+        if not text or not text.startswith(prefix) or text.startswith(prefix * 2):
+            return
+
+        command = text[len(prefix) :].strip()
+        if not command:
+            return
+
+        command_name = command.split(maxsplit=1)[0].split("@", maxsplit=1)[0]
+        if self.allmodules.dispatch(command_name)[1]:
+            return
+
+        self._add_history(command)
+        await self.run_command(message, command)
 
     @loader.command(alias="a")
     async def aptcmd(self, message):
