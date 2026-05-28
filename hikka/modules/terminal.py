@@ -41,6 +41,15 @@ from .. import loader, utils
 
 logger = logging.getLogger(__name__)
 
+ANSI_ESCAPE_RE = re.compile(
+    r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))"
+)
+
+
+def clean_terminal_output(text: str) -> str:
+    """Remove terminal control sequences that render poorly in Telegram."""
+    return ANSI_ESCAPE_RE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
+
 
 def hash_msg(message):
     return f"{str(utils.get_chat_id(message))}/{str(message.id)}"
@@ -57,7 +66,7 @@ async def read_stream(func: callable, stream, delay: float):
             if last_task:
                 # Send all pending data
                 last_task.cancel()
-                await func(data.decode(errors="replace"))
+                await func(clean_terminal_output(data.decode(errors="replace")))
                 # If there is no last task there is inherently no data, so theres no point sending a blank string
             break
 
@@ -95,7 +104,7 @@ async def read_pty_stream(func: callable, fd: int, delay: float):
         if not dat:
             if last_task:
                 last_task.cancel()
-                await func(data.decode(errors="replace"))
+                await func(clean_terminal_output(data.decode(errors="replace")))
             break
 
         data += dat
@@ -108,7 +117,7 @@ async def read_pty_stream(func: callable, fd: int, delay: float):
 
 async def sleep_for_task(func: callable, data: bytes, delay: float):
     await asyncio.sleep(delay)
-    await func(data.decode(errors="replace"))
+    await func(clean_terminal_output(data.decode(errors="replace")))
 
 
 class MessageEditor:
@@ -597,6 +606,7 @@ class TerminalMod(loader.Module):
             ),
         )
         self.activecmds = {}
+        self.activeinputs = {}
         self._script_tasks = {}
         self._script_snapshots = {}
 
@@ -869,6 +879,18 @@ class TerminalMod(loader.Module):
         state = self._terminal_mode_state()
         state.pop(str(utils.get_chat_id(message)), None)
         self.set("terminal_mode", state)
+
+    def _write_to_active_input(
+        self,
+        message: hikkatl.tl.types.Message,
+        command: str,
+    ) -> bool:
+        active_input = self.activeinputs.get(str(utils.get_chat_id(message)))
+        if not active_input or active_input["process"].returncode is not None:
+            return False
+
+        active_input["writer"]((command + "\n").encode())
+        return True
 
     async def client_ready(self):
         self._restart_enabled_scripts()
@@ -1287,6 +1309,9 @@ class TerminalMod(loader.Module):
                 cmd = history_cmd
 
         self._add_history(cmd)
+        if self._write_to_active_input(message, cmd):
+            return
+
         await self.run_command(message, cmd)
 
     @loader.command(alias="t-rg")
@@ -1332,6 +1357,10 @@ class TerminalMod(loader.Module):
 
         command_name = command.split(maxsplit=1)[0].split("@", maxsplit=1)[0]
         if self.allmodules.dispatch(command_name)[1]:
+            return
+
+        if self._write_to_active_input(message, command):
+            self._add_history(command)
             return
 
         self._add_history(command)
@@ -1485,6 +1514,9 @@ class TerminalMod(loader.Module):
         editor.update_process(sproc, input_writer)
 
         self.activecmds[hash_msg(message)] = sproc
+        chat_id = str(utils.get_chat_id(message))
+        if input_writer is not None:
+            self.activeinputs[chat_id] = {"process": sproc, "writer": input_writer}
 
         await editor.redraw()
 
@@ -1534,6 +1566,9 @@ class TerminalMod(loader.Module):
                 os.remove(cwd_file)
 
             self.activecmds.pop(hash_msg(message), None)
+            active_input = self.activeinputs.get(str(utils.get_chat_id(message)))
+            if active_input and active_input["process"] is sproc:
+                self.activeinputs.pop(str(utils.get_chat_id(message)), None)
 
     @loader.command(aliases=("kill", "stop"))
     async def terminatecmd(self, message):
