@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import pty
 import re
 import shlex
 import tempfile
@@ -56,8 +57,45 @@ async def read_stream(func: callable, stream, delay: float):
             if last_task:
                 # Send all pending data
                 last_task.cancel()
-                await func(data.decode())
+                await func(data.decode(errors="replace"))
                 # If there is no last task there is inherently no data, so theres no point sending a blank string
+            break
+
+        data += dat
+
+        if last_task:
+            last_task.cancel()
+
+        last_task = asyncio.ensure_future(sleep_for_task(func, data, delay))
+
+
+async def read_pty_stream(func: callable, fd: int, delay: float):
+    loop = asyncio.get_running_loop()
+    last_task = None
+    data = b""
+
+    while True:
+        future = loop.create_future()
+
+        def _read_ready():
+            if not future.done():
+                future.set_result(None)
+
+        loop.add_reader(fd, _read_ready)
+        try:
+            await future
+        finally:
+            loop.remove_reader(fd)
+
+        try:
+            dat = os.read(fd, 1024)
+        except OSError:
+            dat = b""
+
+        if not dat:
+            if last_task:
+                last_task.cancel()
+                await func(data.decode(errors="replace"))
             break
 
         data += dat
@@ -70,7 +108,7 @@ async def read_stream(func: callable, stream, delay: float):
 
 async def sleep_for_task(func: callable, data: bytes, delay: float):
     await asyncio.sleep(delay)
-    await func(data.decode())
+    await func(data.decode(errors="replace"))
 
 
 class MessageEditor:
@@ -137,7 +175,7 @@ class MessageEditor:
         self.state = 4
         await self.redraw()
 
-    def update_process(self, process):
+    def update_process(self, process, input_writer=None):
         pass
 
 
@@ -146,6 +184,10 @@ class SudoMessageEditor(MessageEditor):
     PASS_REQ = "[sudo] password for"
     WRONG_PASS = r"\[sudo\] password for (.*): Sorry, try again\."
     TOO_MANY_TRIES = (r"\[sudo\] password for (.*): sudo: [0-9]+ incorrect password attempts")  # fmt: skip
+    GENERIC_AUTH_PROMPTS = (
+        re.compile(r"(?im)(?:^|[\r\n])[^\r\n]{0,160}(?:password|passphrase|pin|otp|verification code|2fa)[^\r\n:]{0,160}:\s*$"),
+        re.compile(r"(?im)(?:^|[\r\n])[^\r\n]{0,160}(?:continue connecting|yes/no(?:/\[fingerprint\])?)[^\r\n?]{0,160}\?\s*$"),
+    )
 
     def __init__(
         self,
@@ -160,23 +202,81 @@ class SudoMessageEditor(MessageEditor):
         super().__init__(message, command, config, strings, request_message, cwd)
         self._tg_id = tg_id
         self.process = None
+        self._input_writer = None
         self.state = 0
         self.authmsg = None
+        self._last_prompt = None
+        self._auth_handler_registered = False
 
-    def update_process(self, process):
+    def update_process(self, process, input_writer=None):
         logger.debug("got sproc obj %s", process)
         self.process = process
+        self._input_writer = input_writer or self._write_to_process_stdin
+
+    def _write_to_process_stdin(self, data: bytes):
+        if self.process and self.process.stdin:
+            self.process.stdin.write(data)
+
+    @staticmethod
+    def _last_nonempty_line(text: str) -> str:
+        normalized = text.replace("\r", "\n")
+        lines = [line for line in normalized.split("\n") if line.strip()]
+        return lines[-1].strip() if lines else ""
+
+    def _generic_prompt(self, output: str) -> typing.Optional[str]:
+        tail = output[-500:]
+        for pattern in self.GENERIC_AUTH_PROMPTS:
+            match = pattern.search(tail)
+            if match:
+                return self._last_nonempty_line(match.group(0))
+
+        return None
+
+    async def _request_auth(self, prompt: str):
+        self._last_prompt = prompt
+        text = self.strings("auth_needed").format(self._tg_id)
+
+        try:
+            await utils.answer(self.message, text)
+        except hikkatl.errors.rpcerrorlist.MessageNotModifiedError as e:
+            logger.debug(e)
+
+        command = "<code>" + utils.escape_html(self.command) + "</code>"
+        self.authmsg = await self.message[0].client.send_message(
+            "me",
+            self.strings("auth_msg").format(
+                utils.escape_html(prompt),
+                command,
+            ),
+        )
+
+        if self._auth_handler_registered:
+            self.message[0].client.remove_event_handler(self.on_message_edited)
+
+        self.message[0].client.add_event_handler(
+            self.on_message_edited,
+            hikkatl.events.messageedited.MessageEdited(chats=["me"]),
+        )
+        self._auth_handler_registered = True
 
     async def update_stderr(self, stderr):
         logger.debug("stderr update " + stderr)
         self.stderr = stderr
-        lines = stderr.strip().split("\n")
-        lastline = lines[-1]
+        await self._handle_output_update(stderr, is_stderr=True)
+
+    async def update_stdout(self, stdout):
+        self.stdout = stdout
+        await self._handle_output_update(stdout, is_stderr=False)
+
+    async def _handle_output_update(self, output: str, is_stderr: bool):
+        lines = output.strip().split("\n")
+        lastline = lines[-1] if lines else ""
         lastlines = lastline.rsplit(" ", 1)
         handled = False
 
         if (
-            len(lines) > 1
+            is_stderr
+            and len(lines) > 1
             and re.fullmatch(self.WRONG_PASS, lines[-2])
             and lastlines[0] == self.PASS_REQ
             and self.state == 1
@@ -187,65 +287,48 @@ class SudoMessageEditor(MessageEditor):
             handled = True
             await asyncio.sleep(2)
             await self.authmsg.delete()
+            self.authmsg = None
 
-        if lastlines[0] == self.PASS_REQ and self.state == 0:
-            logger.debug("Success to find sudo log!")
-            text = self.strings("auth_needed").format(self._tg_id)
+        prompt = None
+        if is_stderr and lastlines[0] == self.PASS_REQ:
+            prompt = lastlines[1][:-1]
+        else:
+            prompt = self._generic_prompt(output)
 
-            try:
-                await utils.answer(self.message, text)
-            except hikkatl.errors.rpcerrorlist.MessageNotModifiedError as e:
-                logger.debug(e)
+        if prompt and self.state == 1:
+            logger.debug("interactive auth prompt repeated after submitted response")
+            if self.authmsg is not None:
+                await self.authmsg.edit(self.strings("auth_failed"))
+                await asyncio.sleep(2)
+                await self.authmsg.delete()
+                self.authmsg = None
+            self.state = 0
+            self._last_prompt = None
 
-            logger.debug("edited message with link to self")
-            command = "<code>" + utils.escape_html(self.command) + "</code>"
-            user = utils.escape_html(lastlines[1][:-1])
-
-            self.authmsg = await self.message[0].client.send_message(
-                "me",
-                self.strings("auth_msg").format(command, user),
-            )
-            logger.debug("sent message to self")
-
-            self.message[0].client.remove_event_handler(self.on_message_edited)
-            self.message[0].client.add_event_handler(
-                self.on_message_edited,
-                hikkatl.events.messageedited.MessageEdited(chats=["me"]),
-            )
-
-            logger.debug("registered handler")
+        if prompt and self.state != 1 and prompt != self._last_prompt:
+            logger.debug("interactive auth prompt detected: %s", prompt)
+            await self._request_auth(prompt)
+            self.state = 0
             handled = True
 
-        if len(lines) > 1 and (
+        if is_stderr and len(lines) > 1 and (
             re.fullmatch(self.TOO_MANY_TRIES, lastline) and self.state in {1, 3, 4}
         ):
             logger.debug("password wrong lots of times")
             await utils.answer(self.message, self.strings("auth_locked"))
-            await self.authmsg.delete()
+            if self.authmsg is not None:
+                await self.authmsg.delete()
+                self.authmsg = None
             self.state = 2
             handled = True
 
         if not handled:
-            logger.debug("Didn't find sudo log.")
-            if self.authmsg is not None:
-                await self.authmsg[0].delete()
-                self.authmsg = None
-            self.state = 2
+            if not is_stderr and self.state != 2:
+                self.state = 3  # Means that we got stdout only
+
             await self.redraw()
 
         logger.debug(self.state)
-
-    async def update_stdout(self, stdout):
-        self.stdout = stdout
-
-        if self.state != 2:
-            self.state = 3  # Means that we got stdout only
-
-        if self.authmsg is not None:
-            await self.authmsg.delete()
-            self.authmsg = None
-
-        await self.redraw()
 
     async def on_message_edited(self, message):
         # Message contains sensitive information.
@@ -255,7 +338,7 @@ class SudoMessageEditor(MessageEditor):
         logger.debug("got message edit update in self %s", str(message.id))
 
         if hash_msg(message) == hash_msg(self.authmsg):
-            # The user has provided interactive authentication. Send password to stdin for sudo.
+            # The user has provided interactive authentication. Send secret to stdin.
             try:
                 self.authmsg = await utils.answer(message, self.strings("auth_ongoing"))
             except hikkatl.errors.rpcerrorlist.MessageNotModifiedError:
@@ -263,9 +346,8 @@ class SudoMessageEditor(MessageEditor):
                 await message.delete()
 
             self.state = 1
-            self.process.stdin.write(
-                message.message.message.split("\n", 1)[0].encode() + b"\n"
-            )
+            response = message.message.message.split("\n", 1)[0].encode() + b"\n"
+            self._input_writer(response)
 
 
 class RawMessageEditor(SudoMessageEditor):
@@ -324,6 +406,9 @@ class TerminalMod(loader.Module):
         "name": "Terminal",
         "fw_protect": "How long to wait in seconds between edits in commands",
         "timeout_cfg": "Maximum command runtime in seconds. 0 disables timeout",
+        "interactive_tty_cfg": (
+            "Run terminal commands in a pseudo-terminal so interactive password prompts work"
+        ),
         "history_limit_cfg": (
             "How many terminal commands to keep in history. 0 disables history"
         ),
@@ -485,6 +570,12 @@ class TerminalMod(loader.Module):
                 0,
                 lambda: self.strings("timeout_cfg"),
                 validator=loader.validators.Integer(minimum=0),
+            ),
+            loader.ConfigValue(
+                "INTERACTIVE_TTY",
+                True,
+                lambda: self.strings("interactive_tty_cfg"),
+                validator=loader.validators.Boolean(),
             ),
             loader.ConfigValue(
                 "HISTORY_LIMIT",
@@ -1220,15 +1311,37 @@ class TerminalMod(loader.Module):
             f"hikka-terminal-{uuid.uuid4().hex}.cwd",
         )
 
-        sproc = await asyncio.create_subprocess_exec(
-            self._shell(),
-            "-c",
-            self._wrap_command(cmd, cwd_file),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-        )
+        master_fd = None
+        slave_fd = None
+        input_writer = None
+
+        if self.config["INTERACTIVE_TTY"]:
+            master_fd, slave_fd = pty.openpty()
+            sproc = await asyncio.create_subprocess_exec(
+                self._shell(),
+                "-c",
+                self._wrap_command(cmd, cwd_file),
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=cwd,
+            )
+            os.close(slave_fd)
+            slave_fd = None
+
+            def input_writer(data: bytes):
+                if master_fd is not None:
+                    os.write(master_fd, data)
+        else:
+            sproc = await asyncio.create_subprocess_exec(
+                self._shell(),
+                "-c",
+                self._wrap_command(cmd, cwd_file),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+            )
 
         if editor is None:
             editor = SudoMessageEditor(
@@ -1241,24 +1354,33 @@ class TerminalMod(loader.Module):
                 self._tg_id,
             )
 
-        editor.update_process(sproc)
+        if self.config["INTERACTIVE_TTY"]:
+            readers = asyncio.gather(
+                read_pty_stream(
+                    editor.update_stdout,
+                    master_fd,
+                    self.config["FLOOD_WAIT_PROTECT"],
+                )
+            )
+        else:
+            readers = asyncio.gather(
+                read_stream(
+                    editor.update_stdout,
+                    sproc.stdout,
+                    self.config["FLOOD_WAIT_PROTECT"],
+                ),
+                read_stream(
+                    editor.update_stderr,
+                    sproc.stderr,
+                    self.config["FLOOD_WAIT_PROTECT"],
+                ),
+            )
+
+        editor.update_process(sproc, input_writer)
 
         self.activecmds[hash_msg(message)] = sproc
 
         await editor.redraw()
-
-        readers = asyncio.gather(
-            read_stream(
-                editor.update_stdout,
-                sproc.stdout,
-                self.config["FLOOD_WAIT_PROTECT"],
-            ),
-            read_stream(
-                editor.update_stderr,
-                sproc.stderr,
-                self.config["FLOOD_WAIT_PROTECT"],
-            ),
-        )
 
         timed_out = False
         try:
@@ -1293,6 +1415,14 @@ class TerminalMod(loader.Module):
         finally:
             if not readers.done():
                 readers.cancel()
+
+            if slave_fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(slave_fd)
+
+            if master_fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(master_fd)
 
             with contextlib.suppress(OSError):
                 os.remove(cwd_file)
