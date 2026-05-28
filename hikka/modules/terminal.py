@@ -563,6 +563,34 @@ class TerminalMod(loader.Module):
         "history_invalid": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>No command with this history number</b>"
         ),
+        "copy_usage": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>Usage:</b> "
+            "<code>.t.cp &lt;path&gt;</code>"
+        ),
+        "copy_not_found": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>File not found:</b> "
+            "<code>{}</code>"
+        ),
+        "copy_is_dir": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>This is a directory, not a file:</b> "
+            "<code>{}</code>"
+        ),
+        "copy_sent": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>File from terminal:</b> "
+            "<code>{}</code>"
+        ),
+        "paste_usage": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>Reply to a Telegram file with</b> "
+            "<code>.t-ps</code>"
+        ),
+        "paste_saved": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>File saved to:</b> "
+            "<code>{}</code>"
+        ),
+        "paste_no_filename": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Could not determine file name. "
+            "Use</b> <code>.t-ps &lt;path&gt;</code>"
+        ),
         "terminal_mode_usage": (
             "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Usage:</b> "
             "<code>.t-rg &lt;time|off&gt;</code>"
@@ -625,6 +653,12 @@ class TerminalMod(loader.Module):
             "Show terminal command history. Use .t !N to rerun an entry"
         ),
         "_cmd_doc_pwd": "Show persistent terminal directory",
+        "_cmd_doc_tcp": (
+            "<path> - Send a file from the current terminal directory to Telegram (alias: .t.cp)"
+        ),
+        "_cmd_doc_tps": (
+            "[path] - Save a replied Telegram file to the current terminal directory (alias: .t-ps)"
+        ),
         "_cmd_doc_terminal": (
             "<command> - Execute shell command (alias: .t). Use !N to rerun history item N"
         ),
@@ -1380,6 +1414,101 @@ class TerminalMod(loader.Module):
             return
 
         await utils.answer(message, self.strings("script_usage"))
+
+    @staticmethod
+    def _message_file_name(message: hikkatl.tl.types.Message) -> typing.Optional[str]:
+        file = getattr(message, "file", None)
+        name = getattr(file, "name", None)
+        if name:
+            return os.path.basename(name)
+
+        document = getattr(message, "document", None)
+        for attr in getattr(document, "attributes", []) or []:
+            file_name = getattr(attr, "file_name", None)
+            if file_name:
+                return os.path.basename(file_name)
+
+        return None
+
+    @loader.command(alias="t.cp")
+    async def tcpcmd(self, message):
+        """<path> - Send a file from the current terminal directory to Telegram (alias: .t.cp)"""
+        raw_path = utils.get_args_raw(message).strip()
+        if not raw_path:
+            await utils.answer(message, self.strings("copy_usage"))
+            return
+
+        try:
+            args = shlex.split(raw_path)
+        except ValueError:
+            args = [raw_path]
+
+        path = self._resolve_path(args[0] if args else raw_path)
+        display_path = os.path.relpath(path, self._get_cwd())
+
+        if not os.path.exists(path):
+            await utils.answer(
+                message,
+                self.strings("copy_not_found").format(utils.escape_html(path)),
+            )
+            return
+
+        if not os.path.isfile(path):
+            await utils.answer(
+                message,
+                self.strings("copy_is_dir").format(utils.escape_html(path)),
+            )
+            return
+
+        await utils.answer_file(
+            message,
+            path,
+            caption=self.strings("copy_sent").format(
+                utils.escape_html(
+                    display_path if not display_path.startswith("..") else path
+                )
+            ),
+        )
+
+    @loader.command(alias="t-ps")
+    async def tpscmd(self, message):
+        """[path] - Save a replied Telegram file to the current terminal directory (alias: .t-ps)"""
+        reply = await message.get_reply_message()
+        if not reply or not getattr(reply, "media", None):
+            await utils.answer(message, self.strings("paste_usage"))
+            return
+
+        raw_path = utils.get_args_raw(message).strip()
+        if raw_path:
+            try:
+                args = shlex.split(raw_path)
+            except ValueError:
+                args = [raw_path]
+            destination = self._resolve_path(args[0] if args else raw_path)
+        else:
+            file_name = self._message_file_name(reply)
+            if not file_name:
+                await utils.answer(message, self.strings("paste_no_filename"))
+                return
+            destination = self._resolve_path(file_name)
+
+        if destination.endswith(os.path.sep) or os.path.isdir(destination):
+            file_name = self._message_file_name(reply)
+            if not file_name:
+                await utils.answer(message, self.strings("paste_no_filename"))
+                return
+            destination = os.path.join(destination, file_name)
+
+        os.makedirs(os.path.dirname(destination) or self._get_cwd(), exist_ok=True)
+        data = await reply.download_media(bytes)
+
+        with open(destination, "wb") as file:
+            file.write(data if isinstance(data, bytes) else bytes(data))
+
+        await utils.answer(
+            message,
+            self.strings("paste_saved").format(utils.escape_html(destination)),
+        )
 
     @loader.command(alias="t")
     async def terminalcmd(self, message):
