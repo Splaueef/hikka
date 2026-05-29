@@ -24,11 +24,13 @@
 
 import asyncio
 import contextlib
+import fnmatch
 import logging
 import os
 import pty
 import re
 import shlex
+import shutil
 import tempfile
 import time
 import typing
@@ -44,6 +46,20 @@ logger = logging.getLogger(__name__)
 ANSI_ESCAPE_RE = re.compile(
     r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))"
 )
+SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)(token|api[_-]?key|secret|password|passwd|pass|authorization)"
+    r"(\s*[:=]\s*|\s+)([^\s&;]+)"
+)
+BEARER_TOKEN_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}")
+TELEGRAM_BOT_TOKEN_RE = re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
+
+
+def redact_sensitive_text(text: str) -> str:
+    """Mask common secrets before persisting or sending terminal text."""
+    text = str(text)
+    text = TELEGRAM_BOT_TOKEN_RE.sub("<redacted-token>", text)
+    text = BEARER_TOKEN_RE.sub(r"\1<redacted>", text)
+    return SENSITIVE_VALUE_RE.sub(r"\1\2<redacted>", text)
 
 
 def clean_terminal_output(text: str) -> str:
@@ -184,8 +200,15 @@ class MessageEditor:
         self.stderr = stderr
         await self.redraw()
 
+    def _redact(self, text: str) -> str:
+        if not self.config.get("REDACT_SECRETS", True):
+            return text
+
+        return redact_sensitive_text(text)
+
     async def redraw(self):
-        text = self.strings("running").format(utils.escape_html(self.command))  # fmt: skip
+        command = self._redact(self.command)
+        text = self.strings("running").format(utils.escape_html(command))  # fmt: skip
 
         if self.cwd:
             text += self.strings("cwd").format(utils.escape_html(self.cwd))
@@ -193,10 +216,12 @@ class MessageEditor:
         if self.rc is not None:
             text += self.strings("finished").format(utils.escape_html(str(self.rc)))
 
-        stdout = utils.escape_html(self.stdout[max(len(self.stdout) - 2048, 0) :])
+        stdout_text = self._redact(self.stdout)
+        stdout = utils.escape_html(stdout_text[max(len(stdout_text) - 2048, 0) :])
         text += self.strings("stdout")
         text += self.strings("quote").format(stdout or " ")
-        stderr = utils.escape_html(self.stderr[max(len(self.stderr) - 1024, 0) :])
+        stderr_text = self._redact(self.stderr)
+        stderr = utils.escape_html(stderr_text[max(len(stderr_text) - 1024, 0) :])
         text += (
             self.strings("stderr") + self.strings("quote").format(stderr)
             if stderr
@@ -235,9 +260,9 @@ class MessageEditor:
         if len(output) <= preview_limit:
             return
 
-        command = (
-            self.command if len(self.command) <= 256 else f"{self.command[:253]}..."
-        )
+        command = self._redact(self.command)
+        command = command if len(command) <= 256 else f"{command[:253]}..."
+        output = self._redact(output)
         title = (
             "<emoji document_id=5472111548572900003>📼</emoji> "
             f"<b>Full terminal output:</b> <code>{utils.escape_html(command)}</code>"
@@ -321,7 +346,7 @@ class SudoMessageEditor(MessageEditor):
         except hikkatl.errors.rpcerrorlist.MessageNotModifiedError as e:
             logger.debug(e)
 
-        command = "<code>" + utils.escape_html(self.command) + "</code>"
+        command = "<code>" + utils.escape_html(self._redact(self.command)) + "</code>"
         self.authmsg = await self.message[0].client.send_message(
             "me",
             self.strings("auth_msg").format(
@@ -452,17 +477,19 @@ class RawMessageEditor(SudoMessageEditor):
     async def redraw(self):
         logger.debug(self.rc)
 
+        stdout = self._redact(self.stdout)
+        stderr = self._redact(self.stderr)
         if self.rc is None:
             text = self.strings("quote").format(
-                utils.escape_html(self.stdout[max(len(self.stdout) - 4095, 0) :]) or " "
+                utils.escape_html(stdout[max(len(stdout) - 4095, 0) :]) or " "
             )
         elif self.rc == 0:
             text = self.strings("quote").format(
-                utils.escape_html(self.stdout[max(len(self.stdout) - 4090, 0) :]) or " "
+                utils.escape_html(stdout[max(len(stdout) - 4090, 0) :]) or " "
             )
         else:
             text = self.strings("quote").format(
-                utils.escape_html(self.stderr[max(len(self.stderr) - 4095, 0) :]) or " "
+                utils.escape_html(stderr[max(len(stderr) - 4095, 0) :]) or " "
             )
 
         if self.rc is not None and self.show_done:
@@ -500,6 +527,14 @@ class TerminalMod(loader.Module):
         "scripts_output_limit_cfg": (
             "Legacy option kept for compatibility; script output is split into messages"
         ),
+        "max_copy_file_size_cfg": (
+            "Maximum file size in bytes for .t.cp without --force. 0 disables the limit"
+        ),
+        "max_paste_file_size_cfg": (
+            "Maximum file size in bytes for .t-ps without --force. 0 disables the limit"
+        ),
+        "redact_secrets_cfg": "Mask common tokens/passwords in terminal output and history",
+        "scripts_ignore_cfg": "Comma-separated patterns ignored by terminal directory watchers",
         "what_to_kill": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Reply to a terminal command to terminate it</b>"
         ),
@@ -563,9 +598,12 @@ class TerminalMod(loader.Module):
         "history_invalid": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>No command with this history number</b>"
         ),
+        "history_cleared": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Terminal history cleared</b>"
+        ),
         "copy_usage": (
             "<emoji document_id=5472111548572900003>📁</emoji> <b>Usage:</b> "
-            "<code>.t.cp &lt;path&gt;</code>"
+            "<code>.t.cp [-md|--md] [-p|--preview] [-f|--force] [--name name] &lt;path&gt;</code>"
         ),
         "copy_not_found": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>File not found:</b> "
@@ -579,9 +617,25 @@ class TerminalMod(loader.Module):
             "<emoji document_id=5472111548572900003>📁</emoji> <b>File from terminal:</b> "
             "<code>{}</code>"
         ),
+        "copy_sent_md": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>Markdown file from terminal:</b> "
+            "<code>{}</code>"
+        ),
+        "copy_not_text": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>File does not look like readable text:</b> "
+            "<code>{}</code>"
+        ),
+        "copy_too_large": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>File is too large:</b> "
+            "<code>{}</code> <b>(&gt; {} bytes). Use</b> <code>--force</code> <b>to send anyway.</b>"
+        ),
+        "copy_preview": (
+            "<emoji document_id=5472111548572900003>📁</emoji> <b>File preview:</b> "
+            "<code>{}</code>\n<b>Size:</b> <code>{}</code> <b>bytes</b>\n<blockquote>{}</blockquote>"
+        ),
         "paste_usage": (
             "<emoji document_id=5472111548572900003>📁</emoji> <b>Reply to a Telegram file with</b> "
-            "<code>.t-ps</code>"
+            "<code>.t-ps [-f|--force] [path]</code>"
         ),
         "paste_saved": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>File saved to:</b> "
@@ -591,9 +645,17 @@ class TerminalMod(loader.Module):
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Could not determine file name. "
             "Use</b> <code>.t-ps &lt;path&gt;</code>"
         ),
+        "paste_exists": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>File already exists:</b> "
+            "<code>{}</code> <b>Use</b> <code>--force</code> <b>to overwrite.</b>"
+        ),
+        "paste_too_large": (
+            "<emoji document_id=5210952531676504517>🚫</emoji> <b>Telegram file is too large:</b> "
+            "<code>{}</code> <b>(&gt; {} bytes). Use</b> <code>--force</code> <b>to save anyway.</b>"
+        ),
         "terminal_mode_usage": (
             "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Usage:</b> "
-            "<code>.t-rg &lt;time|off&gt;</code>"
+            "<code>.t-rg &lt;time|off|status&gt;</code>"
         ),
         "terminal_mode_enabled": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Terminal mode enabled for {}</b>\n"
@@ -601,6 +663,12 @@ class TerminalMod(loader.Module):
         ),
         "terminal_mode_disabled": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Terminal mode disabled in this chat</b>"
+        ),
+        "terminal_mode_status_on": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal mode is enabled in this chat for {}</b>"
+        ),
+        "terminal_mode_status_off": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal mode is disabled in this chat</b>"
         ),
         "terminal_mode_invalid_time": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Specify time like</b> "
@@ -610,7 +678,7 @@ class TerminalMod(loader.Module):
             "<emoji document_id=5472111548572900003>🤖</emoji> <b>Terminal scripts</b>\n"
             "<code>.ts add &lt;name&gt; = watch dir:/path on:change -> cat $file |> notify telegram -100123</code>\n"
             '<code>.ts add &lt;name&gt; = on time:every 5min -> run "date" |> notify me</code>\n'
-            "<code>.ts list|show|start|stop|del &lt;name&gt;</code>"
+            "<code>.ts list|show|test|start|stop|pause|del &lt;name|all&gt;</code>"
         ),
         "script_saved": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
@@ -627,6 +695,13 @@ class TerminalMod(loader.Module):
         "script_stopped": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
             "<code>{}</code> <b>stopped</b>"
+        ),
+        "scripts_bulk_updated": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>{} scripts updated</b>"
+        ),
+        "script_tested": (
+            "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
+            "<code>{}</code> <b>test run started</b>"
         ),
         "script_not_found": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Script not found:</b> "
@@ -647,27 +722,28 @@ class TerminalMod(loader.Module):
             "<emoji document_id=5472111548572900003>🤖</emoji> <b>Script</b> "
             "<code>{}</code> <b>({})</b>\n<blockquote>{}</blockquote>"
         ),
-        "_cmd_doc_apt": "Shorthand for '.terminal apt'",
+        "_cmd_doc_apt": "[apt arguments] - Shorthand for '.terminal apt'",
         "_cmd_doc_cd": "[path] - Change persistent terminal directory",
         "_cmd_doc_history": (
-            "Show terminal command history. Use .t !N to rerun an entry"
+            "[clear|search <text>|-n N] - Show/manage terminal command history. Use .t !N to rerun an entry"
         ),
         "_cmd_doc_pwd": "Show persistent terminal directory",
         "_cmd_doc_tcp": (
-            "<path> - Send a file from the current terminal directory to Telegram (alias: .t.cp)"
+            "[-md|--md] [-p|--preview] [-f|--force] [--name name] <path> - Send a file "
+            "from the current terminal directory to Telegram (alias: .t.cp)"
         ),
         "_cmd_doc_tps": (
-            "[path] - Save a replied Telegram file to the current terminal directory (alias: .t-ps)"
+            "[-f|--force] [path] - Save a replied Telegram file to the current terminal directory (alias: .t-ps)"
         ),
         "_cmd_doc_terminal": (
             "<command> - Execute shell command (alias: .t). Use !N to rerun history item N"
         ),
         "_cmd_doc_terminalmode": (
-            "<time|off> - Enable terminal mode in current chat (alias: .t-rg). "
+            "<time|off|status> - Enable terminal mode in current chat (alias: .t-rg). "
             "Unknown dot-commands will be executed as shell commands"
         ),
         "_cmd_doc_termscript": (
-            "add|list|show|start|stop|del - Manage saved background terminal scripts (alias: .ts)"
+            "add|list|show|test|start|stop|pause|del - Manage saved background terminal scripts (alias: .ts)"
         ),
         "_cmd_doc_terminate": (
             "[-f to force kill] - Use in reply to send SIGTERM to a process"
@@ -713,6 +789,30 @@ class TerminalMod(loader.Module):
                 lambda: self.strings("scripts_output_limit_cfg"),
                 validator=loader.validators.Integer(minimum=256, maximum=4096),
             ),
+            loader.ConfigValue(
+                "MAX_COPY_FILE_SIZE",
+                25 * 1024 * 1024,
+                lambda: self.strings("max_copy_file_size_cfg"),
+                validator=loader.validators.Integer(minimum=0),
+            ),
+            loader.ConfigValue(
+                "MAX_PASTE_FILE_SIZE",
+                25 * 1024 * 1024,
+                lambda: self.strings("max_paste_file_size_cfg"),
+                validator=loader.validators.Integer(minimum=0),
+            ),
+            loader.ConfigValue(
+                "REDACT_SECRETS",
+                True,
+                lambda: self.strings("redact_secrets_cfg"),
+                validator=loader.validators.Boolean(),
+            ),
+            loader.ConfigValue(
+                "SCRIPTS_IGNORE_PATTERNS",
+                [".git", "node_modules", "venv", ".venv", "__pycache__"],
+                lambda: self.strings("scripts_ignore_cfg"),
+                validator=loader.validators.Series(validator=loader.validators.String()),
+            ),
         )
         self.activecmds = {}
         self.activeinputs = {}
@@ -741,6 +841,103 @@ class TerminalMod(loader.Module):
     def _resolve_path(self, path: str) -> str:
         path = os.path.expandvars(os.path.expanduser(path or "~"))
         return path if os.path.isabs(path) else os.path.join(self._get_cwd(), path)
+
+    @staticmethod
+    def _parse_cli_args(raw: str) -> typing.List[str]:
+        try:
+            return shlex.split(raw)
+        except ValueError:
+            return [raw] if raw else []
+
+    @staticmethod
+    def _pop_flag(args: typing.List[str], *flags: str) -> bool:
+        found = False
+        for flag in flags:
+            while flag in args:
+                args.remove(flag)
+                found = True
+        return found
+
+    @staticmethod
+    def _pop_option(args: typing.List[str], *flags: str) -> typing.Optional[str]:
+        for index, arg in enumerate(list(args)):
+            for flag in flags:
+                if arg == flag:
+                    args.pop(index)
+                    return args.pop(index) if index < len(args) else None
+
+                prefix = f"{flag}="
+                if arg.startswith(prefix):
+                    args.pop(index)
+                    return arg[len(prefix) :]
+
+        return None
+
+    @staticmethod
+    def _human_file_name(path: str) -> str:
+        return os.path.basename(path.rstrip(os.path.sep)) or os.path.basename(path)
+
+    @staticmethod
+    def _markdown_file_name(path: str, custom_name: typing.Optional[str] = None) -> str:
+        if custom_name:
+            name = os.path.basename(custom_name)
+            return name if name.endswith(".md") else f"{name}.md"
+
+        original = Path(path)
+        return f"{original.name}.md" if not original.suffix else original.with_suffix(".md").name
+
+    @staticmethod
+    def _looks_like_text(path: str, sample_size: int = 8192) -> bool:
+        try:
+            with open(path, "rb") as file:
+                sample = file.read(sample_size)
+        except OSError:
+            return False
+
+        if b"\x00" in sample:
+            return False
+
+        try:
+            sample.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                sample.decode()
+            except UnicodeDecodeError:
+                return False
+
+        return True
+
+    @staticmethod
+    def _read_text_preview(path: str, limit: int = 2048) -> typing.Optional[str]:
+        try:
+            with open(path, "rb") as file:
+                sample = file.read(limit + 1)
+        except OSError:
+            return None
+
+        if b"\x00" in sample:
+            return None
+
+        try:
+            text = sample.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                text = sample.decode()
+            except UnicodeDecodeError:
+                return None
+
+        if len(text) > limit:
+            text = f"{text[:limit]}…"
+
+        return text
+
+    def _file_size_allowed(self, size: int, config_key: str, force: bool) -> bool:
+        limit = self.config[config_key]
+        return force or not limit or size <= limit
+
+    def _is_secret_command(self, cmd: str) -> bool:
+        return redact_sensitive_text(cmd) != cmd
+
 
     @staticmethod
     def _shell() -> str:
@@ -907,10 +1104,13 @@ class TerminalMod(loader.Module):
 
     def _add_history(self, cmd: str):
         limit = self.config["HISTORY_LIMIT"]
-        if not limit:
+        if not limit or self._is_secret_command(cmd):
             return
 
         history = self._get_history()
+        if history and history[-1] == cmd:
+            return
+
         history.append(cmd)
         self.set("history", history[-limit:])
 
@@ -1128,15 +1328,39 @@ class TerminalMod(loader.Module):
             "source": source,
         }
 
+    def _script_path_ignored(self, path: Path) -> bool:
+        patterns = self.config["SCRIPTS_IGNORE_PATTERNS"]
+        path_text = str(path)
+        return any(
+            fnmatch.fnmatch(path.name, pattern) or fnmatch.fnmatch(path_text, pattern)
+            for pattern in patterns
+        )
+
+    def _iter_script_paths(self, target: Path) -> typing.Iterable[Path]:
+        if not target.is_dir():
+            return
+
+        for root, dirs, files in os.walk(target):
+            root_path = Path(root)
+            dirs[:] = [
+                directory
+                for directory in dirs
+                if not self._script_path_ignored(root_path / directory)
+            ]
+            for file_name in files:
+                path = root_path / file_name
+                if not self._script_path_ignored(path):
+                    yield path
+
     def _script_snapshot(
         self, script: dict
     ) -> typing.Dict[str, typing.Tuple[int, int]]:
         target = Path(script["path"])
         paths = []
-        if script["kind"] == "file":
+        if script["kind"] == "file" and not self._script_path_ignored(target):
             paths = [target]
         elif target.is_dir():
-            paths = [path for path in target.rglob("*") if path.is_file()]
+            paths = list(self._iter_script_paths(target))
 
         snapshot = {}
         for path in paths:
@@ -1304,7 +1528,7 @@ class TerminalMod(loader.Module):
 
     @loader.command(alias="ts")
     async def termscriptcmd(self, message):
-        """add|list|show|start|stop|del - Manage saved background terminal scripts (alias: .ts)"""
+        """add|list|show|test|start|stop|pause|del - Manage saved background terminal scripts (alias: .ts)"""
         args = utils.get_args_raw(message).strip()
         if not args:
             await utils.answer(message, self.strings("script_usage"))
@@ -1359,13 +1583,36 @@ class TerminalMod(loader.Module):
             return
 
         name = rest.strip()
-        if action in {"show", "start", "stop", "del", "delete", "rm"} and not name:
+        managed_actions = {
+            "show",
+            "test",
+            "start",
+            "stop",
+            "pause",
+            "del",
+            "delete",
+            "rm",
+        }
+        if action in managed_actions and not name:
             await utils.answer(message, self.strings("script_usage"))
             return
-        if (
-            action in {"show", "start", "stop", "del", "delete", "rm"}
-            and name not in scripts
-        ):
+
+        if action in {"start", "stop", "pause"} and name == "all":
+            enabled = action == "start"
+            for script_name, script in scripts.items():
+                script["enabled"] = enabled
+                if enabled:
+                    self._start_script(script_name, script)
+                else:
+                    self._stop_script(script_name)
+            self._save_scripts(scripts)
+            await utils.answer(
+                message,
+                self.strings("scripts_bulk_updated").format(len(scripts)),
+            )
+            return
+
+        if action in managed_actions and name not in scripts:
             await utils.answer(
                 message,
                 self.strings("script_not_found").format(utils.escape_html(name)),
@@ -1383,6 +1630,20 @@ class TerminalMod(loader.Module):
             )
             return
 
+        if action == "test":
+            asyncio.ensure_future(
+                self._run_script_pipeline(
+                    name,
+                    scripts[name],
+                    {"script": name, "event": "test", "file": "", "path": ""},
+                )
+            )
+            await utils.answer(
+                message,
+                self.strings("script_tested").format(utils.escape_html(name)),
+            )
+            return
+
         if action == "start":
             scripts[name]["enabled"] = True
             self._save_scripts(scripts)
@@ -1393,7 +1654,7 @@ class TerminalMod(loader.Module):
             )
             return
 
-        if action == "stop":
+        if action in {"stop", "pause"}:
             scripts[name]["enabled"] = False
             self._save_scripts(scripts)
             self._stop_script(name)
@@ -1432,18 +1693,23 @@ class TerminalMod(loader.Module):
 
     @loader.command(alias="t.cp")
     async def tcpcmd(self, message):
-        """<path> - Send a file from the current terminal directory to Telegram (alias: .t.cp)"""
+        """[-md|--md] [-p|--preview] [-f|--force] [--name name] <path> - Send a file from terminal"""
         raw_path = utils.get_args_raw(message).strip()
         if not raw_path:
             await utils.answer(message, self.strings("copy_usage"))
             return
 
-        try:
-            args = shlex.split(raw_path)
-        except ValueError:
-            args = [raw_path]
+        args = self._parse_cli_args(raw_path)
+        as_markdown = self._pop_flag(args, "-md", "--md")
+        preview = self._pop_flag(args, "-p", "--preview")
+        force = self._pop_flag(args, "-f", "--force")
+        custom_name = self._pop_option(args, "--name")
 
-        path = self._resolve_path(args[0] if args else raw_path)
+        if not args:
+            await utils.answer(message, self.strings("copy_usage"))
+            return
+
+        path = self._resolve_path(args[0])
         display_path = os.path.relpath(path, self._get_cwd())
 
         if not os.path.exists(path):
@@ -1460,31 +1726,80 @@ class TerminalMod(loader.Module):
             )
             return
 
-        await utils.answer_file(
-            message,
-            path,
-            caption=self.strings("copy_sent").format(
-                utils.escape_html(
-                    display_path if not display_path.startswith("..") else path
+        size = os.path.getsize(path)
+        if not self._file_size_allowed(size, "MAX_COPY_FILE_SIZE", force):
+            await utils.answer(
+                message,
+                self.strings("copy_too_large").format(
+                    utils.escape_html(path),
+                    self.config["MAX_COPY_FILE_SIZE"],
+                ),
+            )
+            return
+
+        sent_path = display_path if not display_path.startswith("..") else path
+
+        if preview:
+            preview_text = self._read_text_preview(path)
+            if preview_text is None:
+                await utils.answer(
+                    message,
+                    self.strings("copy_not_text").format(utils.escape_html(path)),
                 )
-            ),
-        )
+                return
+
+            await utils.answer(
+                message,
+                self.strings("copy_preview").format(
+                    utils.escape_html(sent_path),
+                    size,
+                    utils.escape_html(preview_text),
+                ),
+            )
+            return
+
+        if not as_markdown:
+            await utils.answer_file(
+                message,
+                path,
+                caption=self.strings("copy_sent").format(utils.escape_html(sent_path)),
+            )
+            return
+
+        if not self._looks_like_text(path):
+            await utils.answer(
+                message,
+                self.strings("copy_not_text").format(utils.escape_html(path)),
+            )
+            return
+
+        md_name = self._markdown_file_name(path, custom_name)
+        sent_dir = os.path.dirname(sent_path)
+        md_display = os.path.join(sent_dir, md_name) if sent_dir else md_name
+        with tempfile.TemporaryDirectory() as temp_dir:
+            md_path = os.path.join(temp_dir, md_name)
+            shutil.copyfile(path, md_path)
+            await utils.answer_file(
+                message,
+                md_path,
+                caption=self.strings("copy_sent_md").format(
+                    utils.escape_html(md_display)
+                ),
+            )
 
     @loader.command(alias="t-ps")
     async def tpscmd(self, message):
-        """[path] - Save a replied Telegram file to the current terminal directory (alias: .t-ps)"""
+        """[-f|--force] [path] - Save a replied Telegram file to the current terminal directory (alias: .t-ps)"""
         reply = await message.get_reply_message()
         if not reply or not getattr(reply, "media", None):
             await utils.answer(message, self.strings("paste_usage"))
             return
 
-        raw_path = utils.get_args_raw(message).strip()
-        if raw_path:
-            try:
-                args = shlex.split(raw_path)
-            except ValueError:
-                args = [raw_path]
-            destination = self._resolve_path(args[0] if args else raw_path)
+        args = self._parse_cli_args(utils.get_args_raw(message).strip())
+        force = self._pop_flag(args, "-f", "--force")
+
+        if args:
+            destination = self._resolve_path(args[0])
         else:
             file_name = self._message_file_name(reply)
             if not file_name:
@@ -1499,11 +1814,43 @@ class TerminalMod(loader.Module):
                 return
             destination = os.path.join(destination, file_name)
 
+        file_size = getattr(getattr(reply, "file", None), "size", None)
+        if (
+            file_size is not None
+            and not self._file_size_allowed(file_size, "MAX_PASTE_FILE_SIZE", force)
+        ):
+            await utils.answer(
+                message,
+                self.strings("paste_too_large").format(
+                    file_size,
+                    self.config["MAX_PASTE_FILE_SIZE"],
+                ),
+            )
+            return
+
+        if os.path.exists(destination) and not force:
+            await utils.answer(
+                message,
+                self.strings("paste_exists").format(utils.escape_html(destination)),
+            )
+            return
+
         os.makedirs(os.path.dirname(destination) or self._get_cwd(), exist_ok=True)
         data = await reply.download_media(bytes)
+        data = data if isinstance(data, bytes) else bytes(data)
+
+        if not self._file_size_allowed(len(data), "MAX_PASTE_FILE_SIZE", force):
+            await utils.answer(
+                message,
+                self.strings("paste_too_large").format(
+                    len(data),
+                    self.config["MAX_PASTE_FILE_SIZE"],
+                ),
+            )
+            return
 
         with open(destination, "wb") as file:
-            file.write(data if isinstance(data, bytes) else bytes(data))
+            file.write(data)
 
         await utils.answer(
             message,
@@ -1541,11 +1888,27 @@ class TerminalMod(loader.Module):
 
     @loader.command(alias="t-rg")
     async def terminalmodecmd(self, message):
-        """<time|off> - Enable terminal mode in current chat (alias: .t-rg)"""
+        """<time|off|status> - Enable terminal mode in current chat (alias: .t-rg)"""
         args = utils.get_args_raw(message).lower().split()
 
         if not args:
             await utils.answer(message, self.strings("terminal_mode_usage"))
+            return
+
+        if args[0] in {"status", "state", "info"}:
+            state = self._terminal_mode_state()
+            expires = state.get(str(utils.get_chat_id(message)))
+            if expires and expires > time.time():
+                await utils.answer(
+                    message,
+                    self.strings("terminal_mode_status_on").format(
+                        utils.escape_html(
+                            self._format_duration(int(expires - time.time()))
+                        )
+                    ),
+                )
+            else:
+                await utils.answer(message, self.strings("terminal_mode_status_off"))
             return
 
         if args[0] in {"off", "disable", "stop", "0"}:
@@ -1593,15 +1956,32 @@ class TerminalMod(loader.Module):
 
     @loader.command(alias="a")
     async def aptcmd(self, message):
-        """Shorthand for '.terminal apt'"""
-        cmd = utils.get_args_raw(message)
+        """[apt arguments] - Shorthand for '.terminal apt'"""
+        cmd = utils.get_args_raw(message).strip()
+        if not cmd:
+            await utils.answer(message, self.strings("empty_command").format("apt"))
+            return
+
+        args = self._parse_cli_args(cmd)
+        apt_cmd = ["apt"] + args
+        if args and args[0] in {
+            "install",
+            "remove",
+            "purge",
+            "autoremove",
+            "upgrade",
+            "full-upgrade",
+        }:
+            apt_cmd.append("-y")
+
         cwd = self._get_cwd()
+        command = shlex.join(apt_cmd)
         await self.run_command(
             message,
-            ("apt " if os.geteuid() == 0 else "sudo -S apt ") + cmd + " -y",
+            command if os.geteuid() == 0 else f"sudo -S {command}",
             RawMessageEditor(
                 message,
-                f"apt {cmd}",
+                command,
                 self.config,
                 self.strings,
                 message,
@@ -1638,8 +2018,25 @@ class TerminalMod(loader.Module):
 
     @loader.command()
     async def historycmd(self, message):
-        """Show terminal command history. Use .t !N to rerun an entry"""
+        """[clear|search <text>|-n N] - Show/manage terminal command history"""
+        args = self._parse_cli_args(utils.get_args_raw(message).strip())
         history = self._get_history()
+
+        if args and args[0] == "clear":
+            self.set("history", [])
+            await utils.answer(message, self.strings("history_cleared"))
+            return
+
+        if args and args[0] == "search":
+            query = " ".join(args[1:]).lower()
+            history = [cmd for cmd in history if query in cmd.lower()] if query else []
+        elif args and args[0] in {"-n", "--limit"}:
+            try:
+                limit = int(args[1])
+            except (IndexError, ValueError):
+                limit = len(history)
+            history = history[-limit:] if limit > 0 else []
+
         if not history:
             await utils.answer(message, self.strings("history_empty"))
             return
@@ -1650,7 +2047,7 @@ class TerminalMod(loader.Module):
                 "\n".join(
                     self.strings("history_item").format(
                         index,
-                        utils.escape_html(cmd),
+                        utils.escape_html(redact_sensitive_text(cmd)),
                     )
                     for index, cmd in enumerate(history, 1)
                 )
