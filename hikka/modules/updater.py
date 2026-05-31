@@ -8,6 +8,8 @@ import asyncio
 import contextlib
 import logging
 import os
+import pathlib
+import shlex
 import subprocess
 import sys
 import time
@@ -33,7 +35,51 @@ logger = logging.getLogger(__name__)
 class UpdaterMod(loader.Module):
     """Updates itself"""
 
-    strings = {"name": "Updater"}
+    strings = {
+        "name": "Updater",
+        "external_add_usage": (
+            "🚫 <b>Usage:</b> <code>.updatesvcadd &lt;name&gt; &lt;repo_url&gt; "
+            "&lt;path&gt; [branch] | [update command]</code>"
+        ),
+        "external_added": "✅ <b>External updater</b> <code>{}</code> <b>saved.</b>",
+        "external_removed": "🗑 <b>External updater</b> <code>{}</code> <b>removed.</b>",
+        "external_not_found": "🚫 <b>External updater</b> <code>{}</code> <b>not found.</b>",
+        "external_empty": "🚸 <b>No external updaters configured.</b>",
+        "external_list_item": (
+            "▫️ <code>{name}</code> → <code>{path}</code> "
+            '(<code>{branch}</code>)\n   <a href="{repo}">repo</a> | '
+            "<code>{command}</code>"
+        ),
+        "external_list": "🔧 <b>External updaters:</b>\n\n{}",
+        "external_checking": "🕗 <b>Checking external updater(s)...</b>",
+        "external_no_updates": "✔️ <b>No external service updates found.</b>",
+        "external_updated": (
+            "🔄 <b>Updated</b> <code>{name}</code>\n"
+            "<code>{old}</code> → <code>{new}</code>\n"
+            "<b>Exit code:</b> <code>{code}</code>{output}"
+        ),
+        "external_cloned": (
+            "📥 <b>Cloned and initialized</b> <code>{name}</code>\n"
+            "<code>{new}</code>\n<b>Exit code:</b> <code>{code}</code>{output}"
+        ),
+        "external_failed": (
+            "🚫 <b>External updater</b> <code>{name}</code> "
+            "<b>failed:</b> <code>{error}</code>"
+        ),
+        "external_output": "\n\n<b>Output:</b>\n<code>{}</code>",
+        "external_default_command": "git reset --hard origin/{branch} && git pull --quiet",
+        "external_interval_doc": (
+            "Seconds between automatic checks of external services. "
+            "0 disables automatic checks"
+        ),
+        "_cmd_doc_updatesvcadd": (
+            "<name> <repo_url> <path> [branch] | [update command] - Add external "
+            "git repository updater"
+        ),
+        "_cmd_doc_updatesvcdel": "<name> - Remove external updater",
+        "_cmd_doc_updatesvclist": "List configured external updaters",
+        "_cmd_doc_updatesvc": "[name] - Check and update external services",
+    }
 
     def __init__(self):
         self.config = loader.ModuleConfig(
@@ -42,7 +88,248 @@ class UpdaterMod(loader.Module):
                 "https://github.com/Splaueef/hikka",
                 lambda: self.strings("origin_cfg_doc"),
                 validator=loader.validators.Link(),
+            ),
+            loader.ConfigValue(
+                "EXTERNAL_UPDATE_INTERVAL",
+                0,
+                lambda: self.strings("external_interval_doc"),
+                validator=loader.validators.Integer(minimum=0),
+            ),
+        )
+
+    def _get_external_services(self) -> typing.List[dict]:
+        services = self.get("external_services", [])
+        return services if isinstance(services, list) else []
+
+    def _set_external_services(self, services: typing.List[dict]):
+        self.set("external_services", services)
+
+    def _find_external_service(self, name: str) -> typing.Optional[dict]:
+        name = name.casefold()
+        return next(
+            (
+                service
+                for service in self._get_external_services()
+                if service.get("name", "").casefold() == name
+            ),
+            None,
+        )
+
+    def _default_external_command(self, branch: str) -> str:
+        return self.strings("external_default_command").format(branch=branch)
+
+    def _format_external_output(self, stdout: str, stderr: str) -> str:
+        output = "\n".join(filter(None, [stdout.strip(), stderr.strip()])).strip()
+        if not output:
+            return ""
+
+        return self.strings("external_output").format(
+            utils.escape_html(output[-1800:])
+        )
+
+    @loader.command()
+    async def updatesvcadd(self, message: Message):
+        args = utils.get_args_raw(message)
+        before_command, _, command = args.partition("|")
+
+        try:
+            parts = shlex.split(before_command)
+        except ValueError:
+            await utils.answer(message, self.strings("external_add_usage"))
+            return
+
+        if len(parts) < 3:
+            await utils.answer(message, self.strings("external_add_usage"))
+            return
+
+        name, repo_url, path, *rest = parts
+        branch = rest[0] if rest else "main"
+        command = command.strip() or self._default_external_command(branch)
+
+        services = [
+            service
+            for service in self._get_external_services()
+            if service.get("name", "").casefold() != name.casefold()
+        ]
+        services.append(
+            {
+                "name": name,
+                "repo_url": repo_url,
+                "path": path,
+                "branch": branch,
+                "command": command,
+            }
+        )
+        self._set_external_services(services)
+
+        await utils.answer(
+            message,
+            self.strings("external_added").format(utils.escape_html(name)),
+        )
+
+    @loader.command()
+    async def updatesvcdel(self, message: Message):
+        name = utils.get_args_raw(message).strip()
+        if not name:
+            await utils.answer(message, self.strings("external_add_usage"))
+            return
+
+        services = self._get_external_services()
+        filtered = [
+            service
+            for service in services
+            if service.get("name", "").casefold() != name.casefold()
+        ]
+
+        if len(filtered) == len(services):
+            await utils.answer(
+                message,
+                self.strings("external_not_found").format(utils.escape_html(name)),
             )
+            return
+
+        self._set_external_services(filtered)
+        await utils.answer(
+            message,
+            self.strings("external_removed").format(utils.escape_html(name)),
+        )
+
+    @loader.command()
+    async def updatesvclist(self, message: Message):
+        services = self._get_external_services()
+        if not services:
+            await utils.answer(message, self.strings("external_empty"))
+            return
+
+        await utils.answer(
+            message,
+            self.strings("external_list").format(
+                "\n".join(
+                    self.strings("external_list_item").format(
+                        name=utils.escape_html(service.get("name", "n/a")),
+                        path=utils.escape_html(service.get("path", "n/a")),
+                        branch=utils.escape_html(service.get("branch", "main")),
+                        repo=utils.escape_html(service.get("repo_url", "")),
+                        command=utils.escape_html(service.get("command", "")),
+                    )
+                    for service in services
+                )
+            ),
+        )
+
+    async def _run_external_update(self, service: dict) -> dict:
+        name = service.get("name", "n/a")
+        repo_url = service.get("repo_url")
+        raw_path = service.get("path", "")
+        path = pathlib.Path(raw_path).expanduser()
+        branch = service.get("branch") or "main"
+        command = service.get("command") or self._default_external_command(branch)
+
+        if not repo_url or not raw_path:
+            raise ValueError("repo_url and path are required")
+
+        cloned = False
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                Repo.clone_from,
+                repo_url,
+                str(path),
+                branch=branch,
+            )
+            cloned = True
+
+        repo = Repo(str(path))
+
+        try:
+            origin = repo.remote("origin")
+        except ValueError:
+            origin = repo.create_remote("origin", repo_url)
+
+        await asyncio.to_thread(repo.git.remote, "set-url", "origin", repo_url)
+        await asyncio.to_thread(origin.fetch)
+        remote_ref = f"origin/{branch}"
+        remote_commit = repo.commit(remote_ref).hexsha
+        local_commit = repo.head.commit.hexsha
+
+        if local_commit == remote_commit and not cloned:
+            return {"name": name, "updated": False}
+
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+
+        return {
+            "name": name,
+            "updated": True,
+            "cloned": cloned,
+            "old": local_commit,
+            "new": remote_commit,
+            "code": process.returncode,
+            "stdout": stdout.decode(errors="replace"),
+            "stderr": stderr.decode(errors="replace"),
+        }
+
+    @loader.command()
+    async def updatesvc(self, message: Message):
+        args = utils.get_args_raw(message).strip()
+        services = self._get_external_services()
+
+        if args:
+            service = self._find_external_service(args)
+            if service is None:
+                await utils.answer(
+                    message,
+                    self.strings("external_not_found").format(utils.escape_html(args)),
+                )
+                return
+
+            services = [service]
+
+        if not services:
+            await utils.answer(message, self.strings("external_empty"))
+            return
+
+        message = await utils.answer(message, self.strings("external_checking"))
+        results = []
+
+        for service in services:
+            try:
+                result = await self._run_external_update(service)
+            except Exception as e:
+                logger.exception("External updater %s failed", service.get("name"))
+                results.append(
+                    self.strings("external_failed").format(
+                        name=utils.escape_html(service.get("name", "n/a")),
+                        error=utils.escape_html(str(e)),
+                    )
+                )
+                continue
+
+            if not result["updated"]:
+                continue
+
+            output = self._format_external_output(result["stdout"], result["stderr"])
+            template = self.strings(
+                "external_cloned" if result.get("cloned") else "external_updated"
+            )
+            results.append(
+                template.format(
+                    name=utils.escape_html(result["name"]),
+                    old=result["old"][:8],
+                    new=result["new"][:8],
+                    code=result["code"],
+                    output=output,
+                )
+            )
+
+        await utils.answer(
+            message,
+            "\n\n".join(results) if results else self.strings("external_no_updates"),
         )
 
     @loader.command()
@@ -262,6 +549,33 @@ class UpdaterMod(loader.Module):
                 return
 
             logger.critical("Got update loop. Update manually via .terminal")
+
+    @loader.loop(interval=60, autostart=True)
+    async def external_update_poller(self):
+        interval = self.config["EXTERNAL_UPDATE_INTERVAL"]
+        if not interval or not self._get_external_services():
+            return
+
+        if time.time() - self.get("last_external_update_check", 0) < interval:
+            return
+
+        self.set("last_external_update_check", time.time())
+
+        for service in self._get_external_services():
+            try:
+                result = await self._run_external_update(service)
+            except Exception:
+                logger.exception("External updater %s failed", service.get("name"))
+                continue
+
+            if result["updated"]:
+                logger.info(
+                    "External updater %s moved from %s to %s with exit code %s",
+                    result["name"],
+                    result["old"],
+                    result["new"],
+                    result["code"],
+                )
 
     @loader.command()
     async def source(self, message: Message):
