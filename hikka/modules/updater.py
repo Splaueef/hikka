@@ -38,17 +38,19 @@ class UpdaterMod(loader.Module):
     strings = {
         "name": "Updater",
         "external_add_usage": (
-            "🚫 <b>Usage:</b> <code>.updatesvcadd &lt;name&gt; &lt;repo_url&gt; "
-            "&lt;path&gt; [branch] | [update command]</code>"
+            "🚫 <b>Usage:</b> <code>.updatesvcadd &lt;name&gt; &lt;path&gt; "
+            "[script]</code> <b>or</b> <code>.updatesvcadd &lt;name&gt; "
+            "&lt;repo_url&gt; &lt;path&gt; [branch] | [update command]</code>"
         ),
         "external_added": "✅ <b>External updater</b> <code>{}</code> <b>saved.</b>",
         "external_removed": "🗑 <b>External updater</b> <code>{}</code> <b>removed.</b>",
-        "external_not_found": "🚫 <b>External updater</b> <code>{}</code> <b>not found.</b>",
+        "external_not_found": (
+            "🚫 <b>External updater</b> <code>{}</code> <b>not found.</b>"
+        ),
         "external_empty": "🚸 <b>No external updaters configured.</b>",
         "external_list_item": (
             "▫️ <code>{name}</code> → <code>{path}</code> "
-            '(<code>{branch}</code>)\n   <a href="{repo}">repo</a> | '
-            "<code>{command}</code>"
+            "(<code>{branch}</code>)\n   {repo} | <code>{command}</code>"
         ),
         "external_list": "🔧 <b>External updaters:</b>\n\n{}",
         "external_checking": "🕗 <b>Checking external updater(s)...</b>",
@@ -67,14 +69,16 @@ class UpdaterMod(loader.Module):
             "<b>failed:</b> <code>{error}</code>"
         ),
         "external_output": "\n\n<b>Output:</b>\n<code>{}</code>",
-        "external_default_command": "git reset --hard origin/{branch} && git pull --quiet",
+        "external_default_command": (
+            "git reset --hard origin/{branch} && git pull --quiet"
+        ),
         "external_interval_doc": (
             "Seconds between automatic checks of external services. "
             "0 disables automatic checks"
         ),
         "_cmd_doc_updatesvcadd": (
-            "<name> <repo_url> <path> [branch] | [update command] - Add external "
-            "git repository updater"
+            "<name> <path> [script] or <name> <repo_url> <path> [branch] | "
+            "[update command] - Add external git repository updater"
         ),
         "_cmd_doc_updatesvcdel": "<name> - Remove external updater",
         "_cmd_doc_updatesvclist": "List configured external updaters",
@@ -118,14 +122,44 @@ class UpdaterMod(loader.Module):
     def _default_external_command(self, branch: str) -> str:
         return self.strings("external_default_command").format(branch=branch)
 
+    def _looks_like_git_url(self, value: str) -> bool:
+        if pathlib.Path(value).expanduser().exists():
+            return False
+
+        return (
+            "://" in value
+            or value.startswith(("git@", "ssh://"))
+            or value.endswith(".git")
+        )
+
+    def _get_tracking_branch(self, repo: Repo, branch: str = None) -> str:
+        if branch:
+            return f"origin/{branch}"
+
+        try:
+            tracking_branch = repo.active_branch.tracking_branch()
+        except TypeError:
+            tracking_branch = None
+
+        if tracking_branch is not None:
+            return tracking_branch.name
+
+        try:
+            branch = repo.active_branch.name
+        except TypeError as e:
+            raise ValueError("Unable to detect active branch") from e
+
+        return f"origin/{branch}"
+
+    def _get_service_repo(self, path: pathlib.Path) -> Repo:
+        return Repo(str(path), search_parent_directories=True)
+
     def _format_external_output(self, stdout: str, stderr: str) -> str:
         output = "\n".join(filter(None, [stdout.strip(), stderr.strip()])).strip()
         if not output:
             return ""
 
-        return self.strings("external_output").format(
-            utils.escape_html(output[-1800:])
-        )
+        return self.strings("external_output").format(utils.escape_html(output[-1800:]))
 
     @loader.command()
     async def updatesvcadd(self, message: Message):
@@ -138,13 +172,30 @@ class UpdaterMod(loader.Module):
             await utils.answer(message, self.strings("external_add_usage"))
             return
 
-        if len(parts) < 3:
+        if len(parts) < 2:
             await utils.answer(message, self.strings("external_add_usage"))
             return
 
-        name, repo_url, path, *rest = parts
-        branch = rest[0] if rest else "main"
-        command = command.strip() or self._default_external_command(branch)
+        name, first_arg, *rest = parts
+
+        if self._looks_like_git_url(first_arg):
+            if not rest:
+                await utils.answer(message, self.strings("external_add_usage"))
+                return
+
+            repo_url = first_arg
+            path, *rest = rest
+            branch = rest[0] if rest else "main"
+            command = command.strip() or self._default_external_command(branch)
+        else:
+            repo_url = None
+            path = first_arg
+            branch = None
+            command = command.strip() or " ".join(rest).strip()
+
+            if not command:
+                await utils.answer(message, self.strings("external_add_usage"))
+                return
 
         services = [
             service
@@ -208,8 +259,12 @@ class UpdaterMod(loader.Module):
                     self.strings("external_list_item").format(
                         name=utils.escape_html(service.get("name", "n/a")),
                         path=utils.escape_html(service.get("path", "n/a")),
-                        branch=utils.escape_html(service.get("branch", "main")),
-                        repo=utils.escape_html(service.get("repo_url", "")),
+                        branch=utils.escape_html(service.get("branch") or "auto"),
+                        repo=(
+                            f'<a href="{utils.escape_html(service["repo_url"])}">repo</a>'
+                            if service.get("repo_url")
+                            else "<code>auto repo</code>"
+                        ),
                         command=utils.escape_html(service.get("command", "")),
                     )
                     for service in services
@@ -222,34 +277,45 @@ class UpdaterMod(loader.Module):
         repo_url = service.get("repo_url")
         raw_path = service.get("path", "")
         path = pathlib.Path(raw_path).expanduser()
-        branch = service.get("branch") or "main"
-        command = service.get("command") or self._default_external_command(branch)
+        branch = service.get("branch")
+        command = service.get("command") or self._default_external_command(
+            branch or "main"
+        )
 
-        if not repo_url or not raw_path:
-            raise ValueError("repo_url and path are required")
+        if not raw_path:
+            raise ValueError("path is required")
 
         cloned = False
         if not path.exists():
+            if not repo_url:
+                raise ValueError("path does not exist and repo_url is not configured")
+
             path.parent.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(
                 Repo.clone_from,
                 repo_url,
                 str(path),
-                branch=branch,
+                branch=branch or "main",
             )
             cloned = True
 
-        repo = Repo(str(path))
+        repo = self._get_service_repo(path)
 
         try:
             origin = repo.remote("origin")
-        except ValueError:
+        except ValueError as e:
+            if not repo_url:
+                raise ValueError("origin remote is not configured") from e
+
             origin = repo.create_remote("origin", repo_url)
 
-        await asyncio.to_thread(repo.git.remote, "set-url", "origin", repo_url)
+        if repo_url:
+            await asyncio.to_thread(repo.git.remote, "set-url", "origin", repo_url)
+
         await asyncio.to_thread(origin.fetch)
-        remote_ref = f"origin/{branch}"
-        remote_commit = repo.commit(remote_ref).hexsha
+        tracking_branch = self._get_tracking_branch(repo, branch)
+        branch = tracking_branch.rsplit("/", 1)[-1]
+        remote_commit = repo.commit(tracking_branch).hexsha
         local_commit = repo.head.commit.hexsha
 
         if local_commit == remote_commit and not cloned:
@@ -257,7 +323,7 @@ class UpdaterMod(loader.Module):
 
         process = await asyncio.create_subprocess_shell(
             command,
-            cwd=str(path),
+            cwd=str(repo.working_tree_dir or path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -463,7 +529,7 @@ class UpdaterMod(loader.Module):
                     os.path.join(
                         os.path.dirname(utils.get_base_dir()),
                         "requirements.txt",
-                    )
+                    ),
                 ],
                 check=True,
             )
