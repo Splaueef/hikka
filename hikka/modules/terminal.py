@@ -655,7 +655,7 @@ class TerminalMod(loader.Module):
         ),
         "terminal_mode_usage": (
             "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Usage:</b> "
-            "<code>.t-rg &lt;time|off|status&gt;</code>"
+            "<code>.t-rg &lt;time|forever|off|status&gt;</code>"
         ),
         "terminal_mode_enabled": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Terminal mode enabled for {}</b>\n"
@@ -667,12 +667,16 @@ class TerminalMod(loader.Module):
         "terminal_mode_status_on": (
             "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal mode is enabled in this chat for {}</b>"
         ),
+        "terminal_mode_status_forever": (
+            "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal mode is enabled in this chat permanently</b>"
+        ),
+        "terminal_mode_forever": "forever",
         "terminal_mode_status_off": (
             "<emoji document_id=5472111548572900003>⌨️</emoji> <b>Terminal mode is disabled in this chat</b>"
         ),
         "terminal_mode_invalid_time": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Specify time like</b> "
-            "<code>30m</code>, <code>2h</code>, <code>1d</code> <b>or</b> <code>off</code>"
+            "<code>30m</code>, <code>2h</code>, <code>1d</code>, <code>forever</code> <b>or</b> <code>off</code>"
         ),
         "script_usage": (
             "<emoji document_id=5472111548572900003>🤖</emoji> <b>Terminal scripts</b>\n"
@@ -739,7 +743,7 @@ class TerminalMod(loader.Module):
             "<command> - Execute shell command (alias: .t). Use !N to rerun history item N"
         ),
         "_cmd_doc_terminalmode": (
-            "<time|off|status> - Enable terminal mode in current chat (alias: .t-rg). "
+            "<time|forever|off|status> - Enable terminal mode in current chat (alias: .t-rg). "
             "Unknown dot-commands will be executed as shell commands"
         ),
         "_cmd_doc_termscript": (
@@ -1164,13 +1168,20 @@ class TerminalMod(loader.Module):
         state = self.get("terminal_mode", {})
         return state if isinstance(state, dict) else {}
 
+    @staticmethod
+    def _is_forever_terminal_mode(expires: typing.Optional[int]) -> bool:
+        return isinstance(expires, int) and expires <= 0
+
     def _is_terminal_mode_enabled(self, message: hikkatl.tl.types.Message) -> bool:
         state = self._terminal_mode_state()
         chat_id = str(utils.get_chat_id(message))
         expires = state.get(chat_id)
 
-        if not expires:
+        if expires is None:
             return False
+
+        if self._is_forever_terminal_mode(expires):
+            return True
 
         if expires <= time.time():
             state.pop(chat_id, None)
@@ -1181,8 +1192,34 @@ class TerminalMod(loader.Module):
 
     def _set_terminal_mode(self, message: hikkatl.tl.types.Message, duration: int):
         state = self._terminal_mode_state()
-        state[str(utils.get_chat_id(message))] = int(time.time() + duration)
+        state[str(utils.get_chat_id(message))] = (
+            0 if duration <= 0 else int(time.time() + duration)
+        )
         self.set("terminal_mode", state)
+
+    @staticmethod
+    def _has_shell_separator(command: str) -> bool:
+        return bool(re.search(r"(?:\r?\n|&&|\|\||;|\|)", command))
+
+    async def _run_terminal_mode_shell_builtin(
+        self,
+        message: hikkatl.tl.types.Message,
+        builtin: str,
+        args: str,
+    ) -> bool:
+        if (
+            not self._is_terminal_mode_enabled(message)
+            or not self._has_shell_separator(args)
+        ):
+            return False
+
+        command = f"{builtin} {args}".strip()
+        self._add_history(command)
+        if self._write_to_active_input(message, command):
+            return True
+
+        await self.run_command(message, command)
+        return True
 
     def _disable_terminal_mode(self, message: hikkatl.tl.types.Message):
         state = self._terminal_mode_state()
@@ -1895,10 +1932,15 @@ class TerminalMod(loader.Module):
             await utils.answer(message, self.strings("terminal_mode_usage"))
             return
 
-        if args[0] in {"status", "state", "info"}:
+        if args[0] in {"status", "state", "info", "статус"}:
             state = self._terminal_mode_state()
             expires = state.get(str(utils.get_chat_id(message)))
-            if expires and expires > time.time():
+            if self._is_forever_terminal_mode(expires):
+                await utils.answer(
+                    message,
+                    self.strings("terminal_mode_status_forever"),
+                )
+            elif expires and expires > time.time():
                 await utils.answer(
                     message,
                     self.strings("terminal_mode_status_on").format(
@@ -1911,13 +1953,23 @@ class TerminalMod(loader.Module):
                 await utils.answer(message, self.strings("terminal_mode_status_off"))
             return
 
-        if args[0] in {"off", "disable", "stop", "0"}:
+        if args[0] in {"off", "disable", "stop", "0", "вимкнути"}:
             self._disable_terminal_mode(message)
             await utils.answer(message, self.strings("terminal_mode_disabled"))
             return
 
-        duration = self._extract_time(args)
-        if not duration:
+        forever = args[0] in {
+            "on",
+            "forever",
+            "permanent",
+            "always",
+            "inf",
+            "infinite",
+            "назавжди",
+            "постійно",
+        }
+        duration = 0 if forever else self._extract_time(args)
+        if not forever and not duration:
             await utils.answer(message, self.strings("terminal_mode_invalid_time"))
             return
 
@@ -1925,7 +1977,9 @@ class TerminalMod(loader.Module):
         await utils.answer(
             message,
             self.strings("terminal_mode_enabled").format(
-                utils.escape_html(self._format_duration(duration))
+                self.strings("terminal_mode_forever")
+                if forever
+                else utils.escape_html(self._format_duration(duration))
             ),
         )
 
@@ -1958,6 +2012,9 @@ class TerminalMod(loader.Module):
     async def aptcmd(self, message):
         """[apt arguments] - Shorthand for '.terminal apt'"""
         cmd = utils.get_args_raw(message).strip()
+        if await self._run_terminal_mode_shell_builtin(message, "apt", cmd):
+            return
+
         if not cmd:
             await utils.answer(message, self.strings("empty_command").format("apt"))
             return
@@ -1994,7 +2051,11 @@ class TerminalMod(loader.Module):
     @loader.command(alias="c")
     async def cdcmd(self, message):
         """[path] - Change persistent terminal directory"""
-        path = self._resolve_path(utils.get_args_raw(message))
+        args = utils.get_args_raw(message)
+        if await self._run_terminal_mode_shell_builtin(message, "cd", args):
+            return
+
+        path = self._resolve_path(args)
 
         if not os.path.isdir(path):
             await utils.answer(
@@ -2011,6 +2072,10 @@ class TerminalMod(loader.Module):
     @loader.command(alias="cwd")
     async def pwdcmd(self, message):
         """Show persistent terminal directory"""
+        args = utils.get_args_raw(message)
+        if await self._run_terminal_mode_shell_builtin(message, "pwd", args):
+            return
+
         await utils.answer(
             message,
             self.strings("pwd").format(utils.escape_html(self._get_cwd())),
@@ -2019,7 +2084,11 @@ class TerminalMod(loader.Module):
     @loader.command()
     async def historycmd(self, message):
         """[clear|search <text>|-n N] - Show/manage terminal command history"""
-        args = self._parse_cli_args(utils.get_args_raw(message).strip())
+        raw_args = utils.get_args_raw(message).strip()
+        if await self._run_terminal_mode_shell_builtin(message, "history", raw_args):
+            return
+
+        args = self._parse_cli_args(raw_args)
         history = self._get_history()
 
         if args and args[0] == "clear":
