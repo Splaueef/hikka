@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import typing
+import urllib.parse
 
 import git
 from git import GitCommandError, Repo
@@ -55,6 +56,33 @@ class UpdaterMod(loader.Module):
         "external_list": "🔧 <b>External updaters:</b>\n\n{}",
         "external_checking": "🕗 <b>Checking external updater(s)...</b>",
         "external_no_updates": "✔️ <b>No external service updates found.</b>",
+        "external_info_checking": "🕗 <b>Collecting external updater info...</b>",
+        "external_info": "ℹ️ <b>External updater info:</b>\n\n{}",
+        "external_info_item": (
+            "▫️ <b>{name}</b>\n"
+            "   <b>Path:</b> <code>{path}</code>\n"
+            "   <b>Branch:</b> <code>{branch}</code> → <code>{tracking}</code>\n"
+            "   <b>Local:</b> <code>{local}</code>\n"
+            "   <b>Remote:</b> <code>{remote}</code>\n"
+            "   <b>Compare:</b> {compare}\n"
+            "   <b>Status:</b> {status}\n"
+            "   <b>Command:</b> <code>{command}</code>"
+        ),
+        "external_info_item_missing": (
+            "▫️ <b>{name}</b>\n"
+            "   <b>Path:</b> <code>{path}</code>\n"
+            "   <b>Status:</b> not cloned yet\n"
+            "   <b>Repository:</b> {repo}\n"
+            "   <b>Branch:</b> <code>{branch}</code>\n"
+            "   <b>Command:</b> <code>{command}</code>"
+        ),
+        "external_info_status_behind": "behind by <code>{}</code> commit(s)",
+        "external_info_status_ahead": "ahead by <code>{}</code> commit(s)",
+        "external_info_status_diverged": (
+            "diverged: ahead by <code>{}</code>, behind by <code>{}</code> commit(s)"
+        ),
+        "external_info_status_current": "up-to-date",
+        "external_info_status_dirty": "local changes present",
         "external_updated": (
             "🔄 <b>Updated</b> <code>{name}</code>\n"
             "<code>{old}</code> → <code>{new}</code>\n"
@@ -82,6 +110,7 @@ class UpdaterMod(loader.Module):
         ),
         "_cmd_doc_updatesvcdel": "<name> - Remove external updater",
         "_cmd_doc_updatesvclist": "List configured external updaters",
+        "_cmd_doc_updatesvcinfo": "[name] - Show current external updater status",
         "_cmd_doc_updatesvc": "[name] - Check and update external services",
     }
 
@@ -153,6 +182,149 @@ class UpdaterMod(loader.Module):
 
     def _get_service_repo(self, path: pathlib.Path) -> Repo:
         return Repo(str(path), search_parent_directories=True)
+
+    def _get_origin_url(self, repo: Repo) -> typing.Optional[str]:
+        try:
+            return next(repo.remote("origin").urls)
+        except (StopIteration, ValueError):
+            return None
+
+    def _normalize_compare_base_url(self, repo_url: str) -> typing.Optional[str]:
+        if not repo_url:
+            return None
+
+        repo_url = repo_url.strip()
+        if repo_url.startswith("git@") and ":" in repo_url:
+            host, path = repo_url[4:].split(":", 1)
+            repo_url = f"https://{host}/{path}"
+        elif repo_url.startswith("ssh://git@"):
+            parsed = urllib.parse.urlparse(repo_url)
+            repo_url = f"https://{parsed.hostname}/{parsed.path.lstrip('/')}"
+
+        if repo_url.endswith(".git"):
+            repo_url = repo_url[:-4]
+
+        parsed = urllib.parse.urlparse(repo_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+
+        return urllib.parse.urlunparse(
+            (parsed.scheme, parsed.netloc, parsed.path, "", "", "")
+        )
+
+    def _get_compare_url(
+        self,
+        repo_url: typing.Optional[str],
+        old: str,
+        new: str,
+    ) -> typing.Optional[str]:
+        base_url = self._normalize_compare_base_url(repo_url or "")
+        if not base_url or not old or not new:
+            return None
+
+        return f"{base_url}/compare/{old[:12]}...{new[:12]}"
+
+    def _format_external_repo_link(self, repo_url: typing.Optional[str]) -> str:
+        base_url = self._normalize_compare_base_url(repo_url or "")
+        if base_url:
+            return f'<a href="{utils.escape_html(base_url)}">repo</a>'
+
+        return utils.escape_html(repo_url or "n/a")
+
+    def _format_external_status(self, status: dict) -> str:
+        ahead = status.get("ahead", 0)
+        behind = status.get("behind", 0)
+        parts = []
+
+        if ahead and behind:
+            parts.append(
+                self.strings("external_info_status_diverged").format(ahead, behind)
+            )
+        elif behind:
+            parts.append(self.strings("external_info_status_behind").format(behind))
+        elif ahead:
+            parts.append(self.strings("external_info_status_ahead").format(ahead))
+        else:
+            parts.append(self.strings("external_info_status_current"))
+
+        if status.get("dirty"):
+            parts.append(self.strings("external_info_status_dirty"))
+
+        return ", ".join(parts)
+
+    async def _get_external_status(self, service: dict, fetch: bool = True) -> dict:
+        name = service.get("name", "n/a")
+        repo_url = service.get("repo_url")
+        raw_path = service.get("path", "")
+        path = pathlib.Path(raw_path).expanduser()
+        branch = service.get("branch")
+        command = service.get("command") or self._default_external_command(
+            branch or "main"
+        )
+
+        if not raw_path:
+            raise ValueError("path is required")
+
+        if not path.exists():
+            return {
+                "name": name,
+                "path": raw_path,
+                "repo_url": repo_url,
+                "branch": branch or "main",
+                "command": command,
+                "exists": False,
+            }
+
+        repo = self._get_service_repo(path)
+
+        try:
+            origin = repo.remote("origin")
+        except ValueError as e:
+            if not repo_url:
+                raise ValueError("origin remote is not configured") from e
+
+            origin = repo.create_remote("origin", repo_url)
+
+        if repo_url:
+            await asyncio.to_thread(repo.git.remote, "set-url", "origin", repo_url)
+
+        if fetch:
+            await asyncio.to_thread(origin.fetch)
+
+        origin_url = repo_url or self._get_origin_url(repo)
+        tracking_branch = self._get_tracking_branch(repo, branch)
+        branch = tracking_branch.rsplit("/", 1)[-1]
+        remote_commit = repo.commit(tracking_branch).hexsha
+        local_commit = repo.head.commit.hexsha
+
+        ahead = behind = 0
+        with contextlib.suppress(Exception):
+            ahead, behind = map(
+                int,
+                repo.git.rev_list(
+                    "--left-right",
+                    "--count",
+                    f"{local_commit}...{tracking_branch}",
+                ).split(),
+            )
+
+        return {
+            "name": name,
+            "path": raw_path,
+            "repo_url": origin_url,
+            "branch": branch,
+            "tracking_branch": tracking_branch,
+            "command": command,
+            "exists": True,
+            "local": local_commit,
+            "remote": remote_commit,
+            "ahead": ahead,
+            "behind": behind,
+            "dirty": repo.is_dirty(untracked_files=True),
+            "compare_url": self._get_compare_url(
+                origin_url, local_commit, remote_commit
+            ),
+        }
 
     def _format_external_output(self, stdout: str, stderr: str) -> str:
         output = "\n".join(filter(None, [stdout.strip(), stderr.strip()])).strip()
@@ -261,7 +433,7 @@ class UpdaterMod(loader.Module):
                         path=utils.escape_html(service.get("path", "n/a")),
                         branch=utils.escape_html(service.get("branch") or "auto"),
                         repo=(
-                            f'<a href="{utils.escape_html(service["repo_url"])}">repo</a>'
+                            self._format_external_repo_link(service.get("repo_url"))
                             if service.get("repo_url")
                             else "<code>auto repo</code>"
                         ),
@@ -278,9 +450,6 @@ class UpdaterMod(loader.Module):
         raw_path = service.get("path", "")
         path = pathlib.Path(raw_path).expanduser()
         branch = service.get("branch")
-        command = service.get("command") or self._default_external_command(
-            branch or "main"
-        )
 
         if not raw_path:
             raise ValueError("path is required")
@@ -299,28 +468,19 @@ class UpdaterMod(loader.Module):
             )
             cloned = True
 
-        repo = self._get_service_repo(path)
-
-        try:
-            origin = repo.remote("origin")
-        except ValueError as e:
-            if not repo_url:
-                raise ValueError("origin remote is not configured") from e
-
-            origin = repo.create_remote("origin", repo_url)
-
-        if repo_url:
-            await asyncio.to_thread(repo.git.remote, "set-url", "origin", repo_url)
-
-        await asyncio.to_thread(origin.fetch)
-        tracking_branch = self._get_tracking_branch(repo, branch)
-        branch = tracking_branch.rsplit("/", 1)[-1]
-        remote_commit = repo.commit(tracking_branch).hexsha
-        local_commit = repo.head.commit.hexsha
+        status = await self._get_external_status(service)
+        command = status["command"]
+        local_commit = status["local"]
+        remote_commit = status["remote"]
 
         if local_commit == remote_commit and not cloned:
-            return {"name": name, "updated": False}
+            return {
+                "name": name,
+                "updated": False,
+                "compare_url": status.get("compare_url"),
+            }
 
+        repo = self._get_service_repo(path)
         process = await asyncio.create_subprocess_shell(
             command,
             cwd=str(repo.working_tree_dir or path),
@@ -338,7 +498,85 @@ class UpdaterMod(loader.Module):
             "code": process.returncode,
             "stdout": stdout.decode(errors="replace"),
             "stderr": stderr.decode(errors="replace"),
+            "compare_url": status.get("compare_url"),
         }
+
+    @loader.command()
+    async def updatesvcinfo(self, message: Message):
+        args = utils.get_args_raw(message).strip()
+        services = self._get_external_services()
+
+        if args:
+            service = self._find_external_service(args)
+            if service is None:
+                await utils.answer(
+                    message,
+                    self.strings("external_not_found").format(utils.escape_html(args)),
+                )
+                return
+
+            services = [service]
+
+        if not services:
+            await utils.answer(message, self.strings("external_empty"))
+            return
+
+        message = await utils.answer(message, self.strings("external_info_checking"))
+        results = []
+
+        for service in services:
+            try:
+                status = await self._get_external_status(service)
+            except Exception as e:
+                logger.exception(
+                    "External updater %s status check failed",
+                    service.get("name"),
+                )
+                results.append(
+                    self.strings("external_failed").format(
+                        name=utils.escape_html(service.get("name", "n/a")),
+                        error=utils.escape_html(str(e)),
+                    )
+                )
+                continue
+
+            if not status["exists"]:
+                results.append(
+                    self.strings("external_info_item_missing").format(
+                        name=utils.escape_html(status["name"]),
+                        path=utils.escape_html(status["path"]),
+                        repo=self._format_external_repo_link(status.get("repo_url")),
+                        branch=utils.escape_html(status["branch"]),
+                        command=utils.escape_html(status["command"]),
+                    )
+                )
+                continue
+
+            compare_url = status.get("compare_url")
+            compare = (
+                f'<a href="{utils.escape_html(compare_url)}">compare</a>'
+                if compare_url
+                else "<code>n/a</code>"
+            )
+
+            results.append(
+                self.strings("external_info_item").format(
+                    name=utils.escape_html(status["name"]),
+                    path=utils.escape_html(status["path"]),
+                    branch=utils.escape_html(status["branch"]),
+                    tracking=utils.escape_html(status["tracking_branch"]),
+                    local=status["local"][:12],
+                    remote=status["remote"][:12],
+                    compare=compare,
+                    status=self._format_external_status(status),
+                    command=utils.escape_html(status["command"]),
+                )
+            )
+
+        await utils.answer(
+            message,
+            self.strings("external_info").format("\n\n".join(results)),
+        )
 
     @loader.command()
     async def updatesvc(self, message: Message):
