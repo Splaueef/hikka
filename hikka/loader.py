@@ -132,7 +132,12 @@ VALID_PIP_PACKAGES = re.compile(
     re.MULTILINE,
 )
 
-USER_INSTALL = "PIP_TARGET" not in os.environ and "VIRTUAL_ENV" not in os.environ
+USER_INSTALL = (
+    "PIP_TARGET" not in os.environ
+    and "VIRTUAL_ENV" not in os.environ
+    and sys.prefix == getattr(sys, "base_prefix", sys.prefix)
+    and not hasattr(sys, "real_prefix")
+)
 
 
 class InfiniteLoop:
