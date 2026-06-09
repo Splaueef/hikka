@@ -813,7 +813,7 @@ class TerminalMod(loader.Module):
             ),
             loader.ConfigValue(
                 "SCRIPTS_IGNORE_PATTERNS",
-                [".git", "node_modules", "venv", ".venv", "__pycache__"],
+                [".git", "node_modules", "venv", "__pycache__"],
                 lambda: self.strings("scripts_ignore_cfg"),
                 validator=loader.validators.Series(validator=loader.validators.String()),
             ),
