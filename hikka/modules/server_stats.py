@@ -44,7 +44,7 @@ class ServerStats(loader.Module):
         ),
         "usage": (
             "<b>Вкажіть період:</b> <code>хв</code>, <code>година</code>, "
-            "<code>день</code> або <code>місяць</code>"
+            "<code>день</code>, <code>місяць</code>, <code>now</code> або <code>top</code>"
         ),
         "stats": (
             "<b>📊 Статистика сервера за {}</b>\n"
@@ -52,9 +52,11 @@ class ServerStats(loader.Module):
             "<code>Період:</code> {}\n\n"
             "<b>RAM:</b> {} / {} ({})\n"
             "<b>MEM:</b> {} / {} ({})\n"
+            "<b>Disk:</b> {} / {} ({})\n"
             "<b>CPU:</b> avg {} | max {}\n"
             "<b>Ядра:</b>\n{}"
         ),
+        "top": "<b>📊 Top processes by CPU</b>\n{}",
         "alert": (
             "<b>⚠️ Ядро CPU завантажене на 100%</b>\n"
             "<code>Час:</code> {}\n"
@@ -97,6 +99,7 @@ class ServerStats(loader.Module):
     def _sample(self):
         vm = psutil.virtual_memory()
         swap = psutil.swap_memory()
+        disk = psutil.disk_usage("/")
         cpu_total = psutil.cpu_percent(interval=None)
         cpu_cores = psutil.cpu_percent(interval=None, percpu=True)
         top_process = self._top_process()
@@ -108,6 +111,9 @@ class ServerStats(loader.Module):
             "mem_used": swap.used,
             "mem_total": swap.total,
             "mem_percent": swap.percent,
+            "disk_used": disk.used,
+            "disk_total": disk.total,
+            "disk_percent": disk.percent,
             "cpu_total": cpu_total,
             "cpu_cores": cpu_cores,
             "top_process": top_process,
@@ -147,6 +153,46 @@ class ServerStats(loader.Module):
         return utils.escape_html(
             f'{top["name"]} (pid {top["pid"]}, cpu {top["cpu"]:.1f}%) — {command}'
         )
+
+    def _top_processes(self, limit: int = 5) -> str:
+        processes = []
+        for process in psutil.process_iter(["pid", "name", "cmdline", "memory_percent"]):
+            with contextlib.suppress(psutil.Error):
+                cpu = process.cpu_percent(interval=None)
+                command = " ".join(process.info.get("cmdline") or [])
+                if len(command) > 70:
+                    command = command[:67] + "..."
+                processes.append(
+                    {
+                        "pid": process.info["pid"],
+                        "name": process.info["name"] or "unknown",
+                        "cmdline": command or process.info["name"] or "unknown",
+                        "cpu": cpu,
+                        "mem": process.info.get("memory_percent") or 0,
+                    }
+                )
+
+        if not processes:
+            return "<code>unknown</code>"
+
+        lines = []
+        for index, process in enumerate(
+            sorted(processes, key=lambda item: item["cpu"], reverse=True)[:limit],
+            1,
+        ):
+            lines.append(
+                "<code>{}</code>. <b>{}</b> pid <code>{}</code> — CPU <code>{:.1f}%</code>, "
+                "RAM <code>{:.1f}%</code>\n<code>{}</code>".format(
+                    index,
+                    utils.escape_html(process["name"]),
+                    process["pid"],
+                    process["cpu"],
+                    process["mem"],
+                    utils.escape_html(process["cmdline"]),
+                )
+            )
+
+        return "\n".join(lines)
 
     async def _alert_full_cores(self, sample):
         if not self.config["alert_on_full_core"]:
@@ -222,6 +268,11 @@ class ServerStats(loader.Module):
             self._percent(
                 statistics.fmean(sample["mem_percent"] for sample in samples)
             ),
+            self._size(latest["disk_used"]),
+            self._size(latest["disk_total"]),
+            self._percent(
+                statistics.fmean(sample["disk_percent"] for sample in samples)
+            ),
             self._percent(statistics.fmean(cpu_total)),
             self._percent(max(cpu_total)),
             "\n".join(core_lines),
@@ -229,8 +280,15 @@ class ServerStats(loader.Module):
 
     @loader.command()
     async def serverstats(self, message: Message):
-        """[хв|година|день|місяць] - показати статистику сервера"""
+        """[хв|година|день|місяць|now|top] - показати статистику сервера"""
         period = (utils.get_args_raw(message) or "хв").strip().lower()
+        if period == "now":
+            self._samples.append(self._sample())
+            period = "хв"
+        elif period == "top":
+            await utils.answer(message, self.strings("top").format(self._top_processes()))
+            return
+
         if period not in PERIODS:
             await utils.answer(message, self.strings("usage"))
             return

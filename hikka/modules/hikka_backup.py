@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import time
+import typing
 import zipfile
 from pathlib import Path
 
@@ -22,12 +23,19 @@ from ..inline.types import BotInlineCall
 
 logger = logging.getLogger(__name__)
 
+MAX_MODULE_BACKUP_FILES = 200
+MAX_MODULE_BACKUP_TOTAL_SIZE = 25 * 1024 * 1024
+MAX_MODULE_BACKUP_FILE_SIZE = 2 * 1024 * 1024
+
 
 @loader.tds
 class HikkaBackupMod(loader.Module):
     """Керує резервними копіями бази даних і модулів."""
 
-    strings = {"name": "HikkaBackup"}
+    strings = {
+        "name": "HikkaBackup",
+        "invalid_backup": "<b>Invalid or unsafe backup file</b>",
+    }
 
     async def client_ready(self):
         if not self.get("period"):
@@ -118,7 +126,7 @@ class HikkaBackupMod(loader.Module):
                 return
 
             await asyncio.sleep(
-                self.get("last_backup") + self.get("period") - time.time()
+                max(0, self.get("last_backup") + self.get("period") - time.time())
             )
 
             backup = io.BytesIO(json.dumps(self._db).encode())
@@ -157,7 +165,12 @@ class HikkaBackupMod(loader.Module):
             return
 
         file = await reply.download_media(bytes)
-        decoded_text = json.loads(file.decode())
+        try:
+            decoded_text = json.loads(file.decode())
+        except Exception:
+            logger.exception("Unable to decode database backup")
+            await utils.answer(message, self.strings("invalid_backup"))
+            return
 
         with contextlib.suppress(KeyError):
             decoded_text["hikka.inline"].pop("bot_token")
@@ -203,6 +216,35 @@ class HikkaBackupMod(loader.Module):
             ),
         )
 
+    @staticmethod
+    def _safe_module_backup_infos(
+        zf: zipfile.ZipFile,
+    ) -> typing.List[zipfile.ZipInfo]:
+        infos = zf.infolist()
+        if len(infos) > MAX_MODULE_BACKUP_FILES:
+            raise ValueError("Too many files in modules backup")
+
+        total_size = 0
+        safe_infos = []
+        for info in infos:
+            path = Path(info.filename)
+            if info.is_dir() or path.name == "db_mods.json":
+                continue
+
+            if path.name != info.filename or path.suffix != ".py":
+                raise ValueError(f"Unsafe module backup member: {info.filename}")
+
+            total_size += info.file_size
+            if (
+                info.file_size > MAX_MODULE_BACKUP_FILE_SIZE
+                or total_size > MAX_MODULE_BACKUP_TOTAL_SIZE
+            ):
+                raise ValueError("Modules backup is too large")
+
+            safe_infos.append(info)
+
+        return safe_infos
+
     @loader.command()
     async def restoremods(self, message: Message):
         if not (reply := await message.get_reply_message()) or not reply.media:
@@ -218,6 +260,7 @@ class HikkaBackupMod(loader.Module):
                 file.name = "mods.zip"
 
                 with zipfile.ZipFile(file) as zf:
+                    module_infos = self._safe_module_backup_infos(zf)
                     with zf.open("db_mods.json", "r") as modules:
                         db_mods = json.loads(modules.read().decode())
                         if isinstance(db_mods, dict) and all(
@@ -230,16 +273,13 @@ class HikkaBackupMod(loader.Module):
                         ):
                             self.lookup("Loader").set("loaded_modules", db_mods)
 
-                    for name in zf.namelist():
-                        if name == "db_mods.json":
-                            continue
-
-                        path = loader.LOADED_MODULES_PATH / Path(name).name
-                        with zf.open(name, "r") as module:
+                    for info in module_infos:
+                        path = loader.LOADED_MODULES_PATH / Path(info.filename).name
+                        with zf.open(info, "r") as module:
                             path.write_bytes(module.read())
             except Exception:
                 logger.exception("Unable to restore modules")
-                await utils.answer(message, self.strings("reply_to_file"))
+                await utils.answer(message, self.strings("invalid_backup"))
                 return
         else:
             if not isinstance(decoded_text, dict) or not all(

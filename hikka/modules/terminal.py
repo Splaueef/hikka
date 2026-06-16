@@ -822,6 +822,7 @@ class TerminalMod(loader.Module):
         self.activeinputs = {}
         self._script_tasks = {}
         self._script_snapshots = {}
+        self._script_read_offsets = {}
 
     def _default_cwd(self) -> str:
         return os.path.abspath(utils.get_base_dir())
@@ -1406,6 +1407,75 @@ class TerminalMod(loader.Module):
                 snapshot[str(path)] = (stat.st_mtime_ns, stat.st_size)
         return snapshot
 
+    def _remember_script_read_offsets(
+        self, name: str, snapshot: typing.Dict[str, typing.Tuple[int, int]]
+    ):
+        offsets = self._script_read_offsets.setdefault(name, {})
+        for path, stat in snapshot.items():
+            offsets.setdefault(path, stat[1])
+
+        for path in list(offsets):
+            if path not in snapshot:
+                offsets.pop(path, None)
+
+    async def _script_read_file_delta(self, name: str, path: str) -> str:
+        offsets = self._script_read_offsets.setdefault(name, {})
+        previous_offset = offsets.get(path, 0)
+
+        try:
+            stat = os.stat(path)
+        except OSError:
+            offsets.pop(path, None)
+            return ""
+
+        if stat.st_size < previous_offset:
+            previous_offset = 0
+
+        try:
+            with open(path, "rb") as file:
+                file.seek(previous_offset)
+                data = file.read()
+        except OSError:
+            return ""
+
+        offsets[path] = stat.st_size
+        return clean_terminal_output(data.decode(errors="replace"))
+
+    def _script_delta_reader_command(
+        self, stage: str, variables: dict
+    ) -> typing.Optional[typing.Tuple[str, str]]:
+        try:
+            args = shlex.split(self._script_format_vars(stage, variables, quote=True))
+        except ValueError:
+            return None
+
+        if not args or args[0] not in {
+            "cat",
+            "grep",
+            "egrep",
+            "fgrep",
+            "awk",
+            "sed",
+            "tail",
+            "head",
+        }:
+            return None
+
+        file_path = variables.get("file")
+        if not file_path:
+            return None
+
+        matching_positions = [
+            index
+            for index, arg in enumerate(args[1:], 1)
+            if os.path.abspath(arg) == os.path.abspath(str(file_path))
+        ]
+        if len(matching_positions) != 1:
+            return None
+
+        args.pop(matching_positions[0])
+        return str(file_path), shlex.join(args)
+
     @staticmethod
     def _watch_changes(
         old: typing.Dict[str, typing.Tuple[int, int]],
@@ -1522,6 +1592,13 @@ class TerminalMod(loader.Module):
             else:
                 command = stage
 
+            delta_reader = self._script_delta_reader_command(command, variables)
+            if delta_reader:
+                delta_path, delta_command = delta_reader
+                delta_payload = await self._script_read_file_delta(name, delta_path)
+                payload = await self._script_shell(delta_command, {}, delta_payload)
+                continue
+
             if command:
                 payload = await self._script_shell(command, variables, payload)
 
@@ -1529,6 +1606,7 @@ class TerminalMod(loader.Module):
         try:
             if script["type"] == "watch":
                 self._script_snapshots[name] = self._script_snapshot(script)
+                self._remember_script_read_offsets(name, self._script_snapshots[name])
                 while True:
                     await asyncio.sleep(int(self.config["SCRIPTS_POLL_INTERVAL"]))
                     old = self._script_snapshots.get(name, {})
@@ -1546,6 +1624,7 @@ class TerminalMod(loader.Module):
                                 "watched": script["path"],
                             },
                         )
+                    self._remember_script_read_offsets(name, new)
             elif script["type"] == "time":
                 while True:
                     await asyncio.sleep(int(script["interval"]))

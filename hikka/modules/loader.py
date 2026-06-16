@@ -96,6 +96,12 @@ class LoaderMod(loader.Module):
                     loader.validators.RegExp(r"^.*:.*$")
                 ),
             ),
+            loader.ConfigValue(
+                "HTTP_TIMEOUT",
+                15,
+                "Timeout for module repository HTTP requests, in seconds",
+                validator=loader.validators.Integer(minimum=1),
+            ),
         )
 
     async def _async_init(self):
@@ -231,6 +237,7 @@ class LoaderMod(loader.Module):
         res = await utils.run_sync(
             requests.get,
             f"{repo}/full.txt",
+            timeout=int(self.config["HTTP_TIMEOUT"]),
             auth=(
                 tuple(self.config["basic_auth"].split(":", 1))
                 if self.config["basic_auth"]
@@ -672,11 +679,19 @@ class LoaderMod(loader.Module):
                             "--no-warn-script-location",
                             *["--user"] if loader.USER_INSTALL else [],
                             *requirements,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
                         )
 
-                        rc = await pip.wait()
+                        stdout, stderr = await pip.communicate()
+                        pip_output = (
+                            stderr.decode(errors="replace").strip()
+                            or stdout.decode(errors="replace").strip()
+                        )
+                        if len(pip_output) > 1500:
+                            pip_output = f"{pip_output[-1500:]}"
 
-                        if rc != 0:
+                        if pip.returncode != 0:
                             if message is not None:
                                 if "com.termux" in os.environ.get("PREFIX", ""):
                                     await utils.answer(
@@ -684,10 +699,14 @@ class LoaderMod(loader.Module):
                                         self.strings("requirements_failed_termux"),
                                     )
                                 else:
-                                    await utils.answer(
-                                        message,
-                                        self.strings("requirements_failed"),
-                                    )
+                                    text = self.strings("requirements_failed")
+                                    if pip_output:
+                                        text += (
+                                            "\n<blockquote>"
+                                            f"{utils.escape_html(pip_output)}"
+                                            "</blockquote>"
+                                        )
+                                    await utils.answer(message, text)
 
                             return
 
@@ -1146,6 +1165,7 @@ class LoaderMod(loader.Module):
             r = await utils.run_sync(
                 requests.get,
                 f"{args}/full.txt",
+                timeout=int(self.config["HTTP_TIMEOUT"]),
                 auth=(
                     tuple(self.config["basic_auth"].split(":", 1))
                     if self.config["basic_auth"]
