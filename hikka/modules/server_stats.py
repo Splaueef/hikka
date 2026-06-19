@@ -69,6 +69,7 @@ class ServerStats(loader.Module):
     def __init__(self):
         self._samples = deque()
         self._last_alert = {}
+        self._full_core_hits = {}
         self.config = loader.ModuleConfig(
             loader.ConfigValue(
                 "collect_stats",
@@ -130,11 +131,23 @@ class ServerStats(loader.Module):
     def _percent(value: float) -> str:
         return f"{value:.1f}%"
 
+    @staticmethod
+    def _normalize_process_cpu(cpu: float) -> float:
+        """Return process CPU usage on the same 0-100 scale as total CPU.
+
+        psutil reports process CPU usage in "one full logical CPU" units, so a
+        busy process may be shown as 100% on a 16-core host while it is only
+        6.25% of total CPU capacity. Server stats show machine-wide CPU
+        percentages, so process values must be normalized to that scale too.
+        """
+
+        return max(cpu / (psutil.cpu_count() or 1), 0)
+
     def _top_process(self) -> str:
         top = None
         for process in psutil.process_iter(["pid", "name", "cmdline"]):
             with contextlib.suppress(psutil.Error):
-                cpu = process.cpu_percent(interval=None)
+                cpu = self._normalize_process_cpu(process.cpu_percent(interval=None))
                 if top is None or cpu > top["cpu"]:
                     top = {
                         "pid": process.info["pid"],
@@ -156,9 +169,11 @@ class ServerStats(loader.Module):
 
     def _top_processes(self, limit: int = 5) -> str:
         processes = []
-        for process in psutil.process_iter(["pid", "name", "cmdline", "memory_percent"]):
+        for process in psutil.process_iter(
+            ["pid", "name", "cmdline", "memory_percent"]
+        ):
             with contextlib.suppress(psutil.Error):
-                cpu = process.cpu_percent(interval=None)
+                cpu = self._normalize_process_cpu(process.cpu_percent(interval=None))
                 command = " ".join(process.info.get("cmdline") or [])
                 if len(command) > 70:
                     command = command[:67] + "..."
@@ -199,9 +214,16 @@ class ServerStats(loader.Module):
             return
 
         now = time.time()
+        active_cores = set()
         for core, load in enumerate(sample["cpu_cores"]):
+            if load < 99.5:
+                self._full_core_hits.pop(core, None)
+                continue
+
+            active_cores.add(core)
+            self._full_core_hits[core] = self._full_core_hits.get(core, 0) + 1
             if (
-                load < 100
+                self._full_core_hits[core] < 2
                 or now - self._last_alert.get(core, 0) < self.config["alert_cooldown"]
             ):
                 continue
@@ -216,6 +238,9 @@ class ServerStats(loader.Module):
                     sample["top_process"],
                 ),
             )
+
+        for core in set(self._full_core_hits) - active_cores:
+            self._full_core_hits.pop(core, None)
 
     @loader.loop(interval=5, autostart=True)
     async def stats_collector(self):
@@ -286,7 +311,9 @@ class ServerStats(loader.Module):
             self._samples.append(self._sample())
             period = "хв"
         elif period == "top":
-            await utils.answer(message, self.strings("top").format(self._top_processes()))
+            await utils.answer(
+                message, self.strings("top").format(self._top_processes())
+            )
             return
 
         if period not in PERIODS:
