@@ -165,6 +165,8 @@ config.json
 *.mp3
 *.avi
 
+.git
+
 # Heroku-specific rules
 .heroku/
 .apt/
