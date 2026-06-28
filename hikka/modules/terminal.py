@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import fnmatch
 import logging
+import mimetypes
 import os
 import pty
 import re
@@ -1805,6 +1806,12 @@ class TerminalMod(loader.Module):
             if file_name:
                 return os.path.basename(file_name)
 
+        ext = getattr(file, "ext", None) or mimetypes.guess_extension(
+            getattr(file, "mime_type", None) or ""
+        )
+        if ext:
+            return f"telegram_file{ext}"
+
         return None
 
     @loader.command(alias="t.cp")
@@ -1951,22 +1958,45 @@ class TerminalMod(loader.Module):
             )
             return
 
-        os.makedirs(os.path.dirname(destination) or self._get_cwd(), exist_ok=True)
-        data = await reply.download_media(bytes)
-        data = data if isinstance(data, bytes) else bytes(data)
+        destination_dir = os.path.dirname(destination) or self._get_cwd()
+        os.makedirs(destination_dir, exist_ok=True)
 
-        if not self._file_size_allowed(len(data), "MAX_PASTE_FILE_SIZE", force):
-            await utils.answer(
-                message,
-                self.strings("paste_too_large").format(
-                    len(data),
-                    self.config["MAX_PASTE_FILE_SIZE"],
-                ),
-            )
-            return
+        temp_path = None
+        created_temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=destination_dir,
+                prefix=f".{os.path.basename(destination)}.",
+                delete=False,
+            ) as temp_file:
+                temp_path = created_temp_path = temp_file.name
 
-        with open(destination, "wb") as file:
-            file.write(data)
+            downloaded = await reply.download_media(file=temp_path)
+            if isinstance(downloaded, bytes):
+                with open(temp_path, "wb") as file:
+                    file.write(downloaded)
+            elif downloaded and downloaded != temp_path:
+                with contextlib.suppress(OSError):
+                    os.remove(created_temp_path)
+                temp_path = downloaded
+
+            size = os.path.getsize(temp_path)
+            if not self._file_size_allowed(size, "MAX_PASTE_FILE_SIZE", force):
+                await utils.answer(
+                    message,
+                    self.strings("paste_too_large").format(
+                        size,
+                        self.config["MAX_PASTE_FILE_SIZE"],
+                    ),
+                )
+                return
+
+            os.replace(temp_path, destination)
+            temp_path = None
+        finally:
+            if temp_path:
+                with contextlib.suppress(OSError):
+                    os.remove(temp_path)
 
         await utils.answer(
             message,
