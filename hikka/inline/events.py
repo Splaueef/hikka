@@ -336,7 +336,7 @@ class Events(InlineUnit):
                     BotInlineCall
                     if getattr(getattr(call, "message", None), "chat", None)
                     else InlineCall
-                )(call, self, None),
+                )(call, self, self._custom_map[call.data].get("unit_id")),
                 *self._custom_map[call.data].get("args", []),
                 **self._custom_map[call.data].get("kwargs", {}),
             )
