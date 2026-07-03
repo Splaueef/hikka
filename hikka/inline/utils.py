@@ -213,7 +213,12 @@ class Utils(InlineUnit):
     generate_markup = _generate_markup
 
     async def _close_unit_handler(self, call: InlineCall):
-        await call.delete()
+        if not await call.delete():
+            with contextlib.suppress(Exception):
+                await call.answer(
+                    "I should have deleted this message, but Telegram refused :(",
+                    show_alert=True,
+                )
 
     async def _unload_unit_handler(self, call: InlineCall):
         await call.unload()
@@ -545,21 +550,23 @@ class Utils(InlineUnit):
     ) -> bool:
         """Params `self`, `unit_id` are for internal use only, do not try to pass them"""
         if getattr(getattr(call, "message", None), "chat", None):
-            try:
-                await self.bot.delete_message(
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                )
-            except Exception:
-                return False
+            chat_id = call.message.chat.id
+            message_id = call.message.message_id
 
-            return True
-
-        if chat_id and message_id:
+        if chat_id is not None and message_id is not None:
             try:
                 await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
             except Exception:
+                logger.debug(
+                    "Failed to delete bot inline message %s in chat %s",
+                    message_id,
+                    chat_id,
+                    exc_info=True,
+                )
                 return False
+
+            if unit_id:
+                await self._unload_unit(unit_id)
 
             return True
 
@@ -579,14 +586,27 @@ class Utils(InlineUnit):
         if not unit_id:
             return False
 
+        inline_message_id = (
+            getattr(call, "inline_message_id", None)
+            or self._units.get(unit_id, {}).get("inline_message_id")
+        )
+        if not inline_message_id:
+            return False
+
         try:
-            message_id, peer, _, _ = resolve_inline_message_id(
-                self._units[unit_id]["inline_message_id"]
-            )
+            message_id, peer, _, _ = resolve_inline_message_id(inline_message_id)
+            if not message_id or peer is None:
+                return False
 
             await self._client.delete_messages(peer, [message_id])
             await self._unload_unit(unit_id)
         except Exception:
+            logger.debug(
+                "Failed to delete inline unit message %s (unit %s)",
+                inline_message_id,
+                unit_id,
+                exc_info=True,
+            )
             return False
 
         return True
