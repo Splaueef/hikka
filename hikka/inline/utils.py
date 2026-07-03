@@ -56,11 +56,8 @@ class Utils(InlineUnit):
 
         markup = InlineKeyboardMarkup()
 
-        map_ = (
-            self._units[markup_obj]["buttons"]
-            if isinstance(markup_obj, str)
-            else markup_obj
-        )
+        unit_id = markup_obj if isinstance(markup_obj, str) else None
+        map_ = self._units[unit_id]["buttons"] if unit_id else markup_obj
 
         map_ = self._normalize_markup(map_)
 
@@ -157,6 +154,7 @@ class Utils(InlineUnit):
                                     if button.get("disable_security", False)
                                     else {}
                                 ),
+                                **({"unit_id": unit_id} if unit_id else {}),
                             }
                     elif "input" in button:
                         line += [
@@ -568,13 +566,30 @@ class Utils(InlineUnit):
         if not unit_id and hasattr(call, "unit_id") and call.unit_id:
             unit_id = call.unit_id
 
-        try:
-            message_id, peer, _, _ = resolve_inline_message_id(
-                self._units[unit_id]["inline_message_id"]
+        inline_message_id = getattr(call, "inline_message_id", None)
+
+        if not unit_id and inline_message_id:
+            unit_id = next(
+                (
+                    current_unit_id
+                    for current_unit_id, unit in self._units.items()
+                    if unit.get("inline_message_id") == inline_message_id
+                ),
+                None,
             )
 
+        if unit_id:
+            inline_message_id = self._units[unit_id]["inline_message_id"]
+
+        if not inline_message_id:
+            return False
+
+        try:
+            message_id, peer, _, _ = resolve_inline_message_id(inline_message_id)
+
             await self._client.delete_messages(peer, [message_id])
-            await self._unload_unit(unit_id)
+            if unit_id:
+                await self._unload_unit(unit_id)
         except Exception:
             return False
 

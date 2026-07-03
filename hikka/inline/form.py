@@ -296,7 +296,10 @@ class Form(InlineUnit):
 
         if (
             not any(
-                any("callback" in button or "input" in button for button in row)
+                any(
+                    "callback" in button or "input" in button or "action" in button
+                    for button in row
+                )
                 for row in reply_markup
             )
             and not ttl
