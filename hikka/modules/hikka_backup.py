@@ -16,6 +16,8 @@ import typing
 import zipfile
 from pathlib import Path
 
+import redis
+
 from hikkatl.tl.types import Message
 
 from .. import loader, utils
@@ -35,7 +37,91 @@ class HikkaBackupMod(loader.Module):
     strings = {
         "name": "HikkaBackup",
         "invalid_backup": "<b>Invalid or unsafe backup file</b>",
+        "redis_saved": (
+            "<emoji document_id=5206607081334906820>✅</emoji> <b>Database backup saved to Redis</b>"
+        ),
+        "redis_loaded": (
+            "<emoji document_id=5774134533590880843>🔄</emoji> <b>Database loaded from Redis, restarting...</b>"
+        ),
+        "redis_missing": (
+            "<emoji document_id=5312383351217201533>🚫</emoji> <b>No Redis backup found</b>"
+        ),
+        "redis_cleared": (
+            "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis database cleared</b>"
+        ),
+        "redis_ok": (
+            "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis is available. Backup size: {size} bytes</b>"
+        ),
+        "redis_error": (
+            "<emoji document_id=5312383351217201533>🚫</emoji> <b>Redis error:</b> <code>{error}</code>"
+        ),
     }
+
+    def __init__(self):
+        self.config = loader.ModuleConfig(
+            loader.ConfigValue(
+                "redis_uri",
+                "127.0.0.1:6379",
+                "Redis URI for database backups",
+                validator=loader.validators.String(),
+            ),
+            loader.ConfigValue(
+                "redis_password",
+                "OOooOO",
+                "Redis password for database backups",
+                validator=loader.validators.Hidden(),
+            ),
+        )
+
+    @staticmethod
+    def _normalize_redis_uri(uri: str) -> str:
+        uri = (uri or "").strip()
+        if "://" not in uri:
+            uri = f"redis://{uri}"
+
+        return uri
+
+    def _redis_key(self) -> str:
+        return str(self._client.tg_id)
+
+    def _redis(self) -> redis.Redis:
+        password = self.config["redis_password"] or None
+        return redis.Redis.from_url(
+            self._normalize_redis_uri(self.config["redis_uri"]),
+            password=password,
+            decode_responses=False,
+        )
+
+    def _redis_save_sync(self) -> int:
+        payload = json.dumps(self._db, ensure_ascii=True)
+        client = self._redis()
+        client.set(self._redis_key(), payload)
+        return len(payload.encode())
+
+    def _redis_load_sync(self) -> typing.Optional[dict]:
+        payload = self._redis().get(self._redis_key())
+        if not payload:
+            return None
+
+        if isinstance(payload, bytes):
+            payload = payload.decode()
+
+        return json.loads(payload)
+
+    def _redis_clear_sync(self) -> None:
+        self._redis().flushdb()
+
+    def _redis_check_sync(self) -> int:
+        client = self._redis()
+        client.ping()
+        payload = client.get(self._redis_key())
+        return len(payload or b"")
+
+    async def _save_to_redis(self) -> int:
+        return await utils.run_sync(self._redis_save_sync)
+
+    async def _load_from_redis(self) -> typing.Optional[dict]:
+        return await utils.run_sync(self._redis_load_sync)
 
     async def client_ready(self):
         if not self.get("period"):
@@ -66,16 +152,6 @@ class HikkaBackupMod(loader.Module):
                     ]
                 ),
             )
-
-        self._backup_channel, _ = await utils.asset_channel(
-            self._client,
-            "hikka-backups",
-            "📼 Your database backups will appear here",
-            silent=True,
-            archive=True,
-            avatar="https://github.com/Splaueef/assets/raw/main/hikka-backups.png",
-            _folder="hikka",
-        )
 
     async def _set_backup_period(self, call: BotInlineCall, value: int):
         if not value:
@@ -129,12 +205,7 @@ class HikkaBackupMod(loader.Module):
                 max(0, self.get("last_backup") + self.get("period") - time.time())
             )
 
-            backup = io.BytesIO(json.dumps(self._db).encode())
-            backup.name = (
-                f"hikka-db-backup-{datetime.datetime.now():%d-%m-%Y-%H-%M}.json"
-            )
-
-            await self._client.send_file(self._backup_channel, backup)
+            await self._save_to_redis()
             self.set("last_backup", round(time.time()))
         except loader.StopLoop:
             raise
@@ -144,16 +215,74 @@ class HikkaBackupMod(loader.Module):
 
     @loader.command()
     async def backupdb(self, message: Message):
-        txt = io.BytesIO(json.dumps(self._db).encode())
-        txt.name = f"db-backup-{datetime.datetime.now():%d-%m-%Y-%H-%M}.json"
-        await self._client.send_file(
-            "me",
-            txt,
-            caption=self.strings("backup_caption").format(
-                prefix=utils.escape_html(self.get_prefix())
-            ),
-        )
-        await utils.answer(message, self.strings("backup_sent"))
+        try:
+            await self._save_to_redis()
+        except Exception as e:
+            logger.exception("Unable to save database to Redis")
+            await utils.answer(
+                message,
+                self.strings("redis_error").format(error=utils.escape_html(str(e))),
+            )
+            return
+
+        await utils.answer(message, self.strings("redis_saved"))
+
+    @loader.command()
+    async def loaddb(self, message: Message):
+        try:
+            decoded_text = await self._load_from_redis()
+        except Exception as e:
+            logger.exception("Unable to load database from Redis")
+            await utils.answer(
+                message,
+                self.strings("redis_error").format(error=utils.escape_html(str(e))),
+            )
+            return
+
+        if not decoded_text:
+            await utils.answer(message, self.strings("redis_missing"))
+            return
+
+        with contextlib.suppress(KeyError):
+            decoded_text["hikka.inline"].pop("bot_token")
+
+        if not self._db.process_db_autofix(decoded_text):
+            raise RuntimeError("Attempted to restore broken database")
+
+        self._db.clear()
+        self._db.update(**decoded_text)
+        self._db.save()
+
+        await utils.answer(message, self.strings("redis_loaded"))
+        await self.invoke("restart", "-f", peer=message.peer_id)
+
+    @loader.command()
+    async def checkdb(self, message: Message):
+        try:
+            size = await utils.run_sync(self._redis_check_sync)
+        except Exception as e:
+            logger.exception("Unable to check Redis")
+            await utils.answer(
+                message,
+                self.strings("redis_error").format(error=utils.escape_html(str(e))),
+            )
+            return
+
+        await utils.answer(message, self.strings("redis_ok").format(size=size))
+
+    @loader.command()
+    async def cleardb(self, message: Message):
+        try:
+            await utils.run_sync(self._redis_clear_sync)
+        except Exception as e:
+            logger.exception("Unable to clear Redis")
+            await utils.answer(
+                message,
+                self.strings("redis_error").format(error=utils.escape_html(str(e))),
+            )
+            return
+
+        await utils.answer(message, self.strings("redis_cleared"))
 
     @loader.command()
     async def restoredb(self, message: Message):

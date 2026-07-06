@@ -228,6 +228,16 @@ hikka_backup:
     modules_backup: "<emoji document_id=5431736674147114227>🗂</emoji> <b>Backup of modules ({})</b>\n\n<b>You can restore it using</b> <code>{}restoremods</code>"
     mods_restored: "<emoji document_id=5774134533590880843>🔄</emoji> <b>Mods restored, restarting</b>"
     backup_sent: "<emoji document_id=5431736674147114227>🗂</emoji> <b>Backup has been sent to saved messages</b>"
+    redis_saved: "<emoji document_id=5206607081334906820>✅</emoji> <b>Database backup saved to Redis</b>"
+    redis_loaded: "<emoji document_id=5774134533590880843>🔄</emoji> <b>Database loaded from Redis, restarting...</b>"
+    redis_missing: "<emoji document_id=5312383351217201533>🚫</emoji> <b>No Redis backup found</b>"
+    redis_cleared: "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis database cleared</b>"
+    redis_ok: "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis is available. Backup size: {size} bytes</b>"
+    redis_error: "<emoji document_id=5312383351217201533>🚫</emoji> <b>Redis error:</b> <code>{error}</code>"
+    _cmd_doc_backupdb: "Force-save database backup to Redis"
+    _cmd_doc_loaddb: "Force-load database from Redis"
+    _cmd_doc_checkdb: "Check Redis connection and stored backup"
+    _cmd_doc_cleardb: "Clear current Redis database"
 
 presets:
     name: "Presets"
