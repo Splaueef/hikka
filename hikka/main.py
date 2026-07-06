@@ -36,6 +36,7 @@ import random
 import socket
 import sqlite3
 import typing
+import uuid
 from getpass import getpass
 from pathlib import Path
 
@@ -199,6 +200,21 @@ def save_config_key(key: str, value: str) -> bool:
     # And save config
     CONFIG_PATH.write_text(json.dumps(config, indent=4))
     return True
+
+
+def get_or_create_config_id() -> str:
+    """Return stable unique id for this Hikka config directory."""
+    if config_id := get_config_key("config_id"):
+        return str(config_id)
+
+    config_id = uuid.uuid4().hex
+    save_config_key("config_id", config_id)
+    return config_id
+
+
+def get_database_key(tg_id: typing.Union[int, str]) -> str:
+    """Return Redis key isolated by Telegram account and config id."""
+    return f"hikka:db:{tg_id}:{get_or_create_config_id()}"
 
 
 def gen_port(cfg: str = "port", no8080: bool = False) -> int:

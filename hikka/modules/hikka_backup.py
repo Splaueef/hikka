@@ -20,7 +20,7 @@ import redis
 
 from hikkatl.tl.types import Message
 
-from .. import loader, utils
+from .. import loader, main, utils
 from ..inline.types import BotInlineCall
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,9 @@ class HikkaBackupMod(loader.Module):
         return uri
 
     def _redis_key(self) -> str:
+        return main.get_database_key(self._client.tg_id)
+
+    def _redis_legacy_key(self) -> str:
         return str(self._client.tg_id)
 
     def _redis(self) -> redis.Redis:
@@ -99,7 +102,8 @@ class HikkaBackupMod(loader.Module):
         return len(payload.encode())
 
     def _redis_load_sync(self) -> typing.Optional[dict]:
-        payload = self._redis().get(self._redis_key())
+        client = self._redis()
+        payload = client.get(self._redis_key()) or client.get(self._redis_legacy_key())
         if not payload:
             return None
 
@@ -109,12 +113,12 @@ class HikkaBackupMod(loader.Module):
         return json.loads(payload)
 
     def _redis_clear_sync(self) -> None:
-        self._redis().flushdb()
+        self._redis().delete(self._redis_key())
 
     def _redis_check_sync(self) -> int:
         client = self._redis()
         client.ping()
-        payload = client.get(self._redis_key())
+        payload = client.get(self._redis_key()) or client.get(self._redis_legacy_key())
         return len(payload or b"")
 
     async def _save_to_redis(self) -> int:
