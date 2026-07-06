@@ -233,10 +233,14 @@ hikka_backup:
     redis_missing: "<emoji document_id=5312383351217201533>🚫</emoji> <b>No Redis backup found</b>"
     redis_cleared: "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis database cleared</b>"
     redis_ok: "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis is available. Backup size: {size} bytes</b>"
+    redis_users_empty: "<emoji document_id=5312383351217201533>🚫</emoji> <b>No Redis database backups found</b>"
+    redis_users: "<emoji document_id=5431736674147114227>🗂</emoji> <b>Redis database backups:</b>\n\n{users}"
+    redis_user: "<code>{tg_id}</code> — <code>{key}</code> ({size} bytes)"
     redis_error: "<emoji document_id=5312383351217201533>🚫</emoji> <b>Redis error:</b> <code>{error}</code>"
     _cmd_doc_backupdb: "Force-save database backup to Redis"
     _cmd_doc_loaddb: "Force-load database from Redis"
     _cmd_doc_checkdb: "Check Redis connection and stored backup"
+    _cmd_doc_listdb: "List all users with database backups stored in Redis"
     _cmd_doc_cleardb: "Clear current Redis database"
 
 presets:
