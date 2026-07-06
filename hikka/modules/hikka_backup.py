@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import typing
 import zipfile
@@ -52,6 +53,13 @@ class HikkaBackupMod(loader.Module):
         "redis_ok": (
             "<emoji document_id=5206607081334906820>✅</emoji> <b>Redis is available. Backup size: {size} bytes</b>"
         ),
+        "redis_users_empty": (
+            "<emoji document_id=5312383351217201533>🚫</emoji> <b>No Redis database backups found</b>"
+        ),
+        "redis_users": (
+            "<emoji document_id=5431736674147114227>🗂</emoji> <b>Redis database backups:</b>\n\n{users}"
+        ),
+        "redis_user": "<code>{tg_id}</code> — <code>{key}</code> ({size} bytes)",
         "redis_error": (
             "<emoji document_id=5312383351217201533>🚫</emoji> <b>Redis error:</b> <code>{error}</code>"
         ),
@@ -121,11 +129,52 @@ class HikkaBackupMod(loader.Module):
         payload = client.get(self._redis_key()) or client.get(self._redis_legacy_key())
         return len(payload or b"")
 
+    def _redis_users_sync(
+        self,
+    ) -> typing.List[typing.Dict[str, typing.Union[str, int]]]:
+        client = self._redis()
+        client.ping()
+        users = {}
+
+        for key in client.scan_iter(match="hikka:db:*"):
+            key = key.decode() if isinstance(key, bytes) else key
+            parts = key.split(":", 3)
+            if len(parts) < 4:
+                continue
+
+            payload = client.get(key)
+            users[key] = {
+                "tg_id": parts[2],
+                "key": key,
+                "size": len(payload or b""),
+            }
+
+        for key in client.scan_iter():
+            key = key.decode() if isinstance(key, bytes) else key
+            if not re.fullmatch(r"\d+", key) or key in users:
+                continue
+
+            payload = client.get(key)
+            users[key] = {
+                "tg_id": key,
+                "key": key,
+                "size": len(payload or b""),
+            }
+
+        return sorted(
+            users.values(), key=lambda item: (str(item["tg_id"]), str(item["key"]))
+        )
+
     async def _save_to_redis(self) -> int:
         return await utils.run_sync(self._redis_save_sync)
 
     async def _load_from_redis(self) -> typing.Optional[dict]:
         return await utils.run_sync(self._redis_load_sync)
+
+    async def _list_redis_users(
+        self,
+    ) -> typing.List[typing.Dict[str, typing.Union[str, int]]]:
+        return await utils.run_sync(self._redis_users_sync)
 
     async def client_ready(self):
         if not self.get("period"):
@@ -273,6 +322,36 @@ class HikkaBackupMod(loader.Module):
             return
 
         await utils.answer(message, self.strings("redis_ok").format(size=size))
+
+    @loader.command()
+    async def listdb(self, message: Message):
+        try:
+            users = await self._list_redis_users()
+        except Exception as e:
+            logger.exception("Unable to list Redis database backups")
+            await utils.answer(
+                message,
+                self.strings("redis_error").format(error=utils.escape_html(str(e))),
+            )
+            return
+
+        if not users:
+            await utils.answer(message, self.strings("redis_users_empty"))
+            return
+
+        await utils.answer(
+            message,
+            self.strings("redis_users").format(
+                users="\n".join(
+                    self.strings("redis_user").format(
+                        tg_id=utils.escape_html(str(user["tg_id"])),
+                        key=utils.escape_html(str(user["key"])),
+                        size=user["size"],
+                    )
+                    for user in users
+                )
+            ),
+        )
 
     @loader.command()
     async def cleardb(self, message: Message):
