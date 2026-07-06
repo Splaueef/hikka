@@ -17,3 +17,4 @@ rsa==4.9
 ruamel.yaml==0.17.21
 
 # Python 3.8+
+redis==4.5.5
