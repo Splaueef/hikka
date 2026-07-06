@@ -62,6 +62,8 @@ class Database(dict):
         self._me: User = None
         self._redis: redis.Redis = None
         self._saving_task: asyncio.Future = None
+        self._redis_key: str = None
+        self._redis_legacy_key: str = None
 
     def __repr__(self):
         return object.__repr__(self)
@@ -69,7 +71,7 @@ class Database(dict):
     def _redis_save_sync(self):
         with self._redis.pipeline() as pipe:
             pipe.set(
-                str(self._client.tg_id),
+                self._redis_key,
                 json.dumps(self, ensure_ascii=True),
             )
             pipe.execute()
@@ -100,6 +102,8 @@ class Database(dict):
             os.environ.get("REDIS_URL") or main.get_config_key("redis_uri")
         ):
             self._redis = redis.Redis.from_url(REDIS_URI)
+            self._redis_key = main.get_database_key(self._client.tg_id)
+            self._redis_legacy_key = str(self._client.tg_id)
         else:
             return False
 
@@ -133,13 +137,14 @@ class Database(dict):
         """Read database and stores it in self"""
         if self._redis:
             try:
-                self.update(
-                    **json.loads(
-                        self._redis.get(
-                            str(self._client.tg_id),
-                        ).decode(),
-                    )
+                payload = self._redis.get(self._redis_key) or self._redis.get(
+                    self._redis_legacy_key
                 )
+                if not payload:
+                    logger.debug("Redis database not found, creating new one...")
+                    return
+
+                self.update(**json.loads(payload.decode()))
             except Exception:
                 logger.exception("Error reading redis database")
             return
