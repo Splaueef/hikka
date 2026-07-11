@@ -1,4 +1,5 @@
 hikka_security:
+    name: "HikkaSecurity"
     no_command: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Команда</b> <code>{}</code> <b>не знайдена!</b>"
     permissions: "🔐 <b>Тут можна налаштувати дозволи для команди</b> <code>{}{}</code>"
     close_menu: "🙈 Закрити це меню"
@@ -14,10 +15,12 @@ hikka_security:
     group_admin: "🧑‍⚖️ Адмін (будь-який)"
     group_member: "👥 У групі"
     pm: "🤙 В пп"
+    everyone: "🌍 Усі (Inline)"
     owner_list: "<emoji document_id=5386399931378440814>😎</emoji> <b>Користувачі групи</b> <code>owner</code><b>:</b>\n\n{}"
     no_owner: "<emoji document_id=5386399931378440814>😎</emoji> <b>Немає користувачів у групі</b> <code>owner</code>"
     no_user: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Вкажи, кому видавати права</b>"
     not_a_user: "<emoji document_id=5447644880824181073>⚠️</emoji> <b>Зазначена ціль - не користувач</b>"
+    li: '<emoji document_id=4974307891025543730>▫️</emoji> <b><a href="tg://user?id={}">{}</a></b>'
     cancel: "🚫 Скасувати"
     confirm: "👑 Підтвердити"
     self: "<emoji document_id=5447644880824181073>⚠️</emoji> <b>Не можна керувати своїми правами!</b>"
@@ -32,6 +35,8 @@ hikka_security:
     no_target: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Не вказана ціль правила безпеки</b>"
     no_rule: "<emoji document_id=5210952531676504517>🚫</emoji> <b>Не вказано правило безпеки (модуль або команда)</b>"
     confirm_rule: "🔐 <b>Будь ласка, підтвердіть, що хочете видати {} <a href='{}'>{}</a> право використовувати {}</b> <code>{}</code> <b>{}</b>"
+    confirm_btn: "👑 Підтвердити"
+    cancel_btn: "🚫 Скасувати"
     multiple_rules: "🔐 <b>Не вдалося однозначно розпізнати правила безпеки. Виберіть те, яке мали на увазі:</b>\n\n{}"
     rule_added: "🔐 <b>Ви видали {} <a href='{}'>{}</a> право використовувати {}</b> <code>{}</code> <b>{}</b>"
     rules: "<emoji document_id=5472308992514464048>🔐</emoji> <b>Таргетовані правила безпеки:</b>\n\n{}"
