@@ -70,16 +70,14 @@ class LoaderMod(loader.Module):
         self.config = loader.ModuleConfig(
             loader.ConfigValue(
                 "MODULES_REPO",
-                "https://hikka.werwolf.pp.ua",
+                "https://github.com/Splaueef/host/raw/main",
                 lambda: self.strings("repo_config_doc"),
                 validator=loader.validators.Link(),
             ),
             loader.ConfigValue(
                 "ADDITIONAL_REPOS",
                 # Currenly the trusted developers are specified
-                [
-                    "https://github.com/Splaueef/host/raw/main",
-                ],
+                [],
                 lambda: self.strings("add_repo_config_doc"),
                 validator=loader.validators.Series(validator=loader.validators.Link()),
             ),
@@ -107,7 +105,7 @@ class LoaderMod(loader.Module):
     async def _async_init(self):
         modules = list(
             filter(
-                lambda x: not x.startswith("https://hikka.werwolf.pp.ua"),
+                lambda x: not x.startswith("https://github.com/Splaueef/host/raw/main"),
                 utils.array_sum(
                     map(
                         lambda x: list(x.values()),
@@ -122,6 +120,9 @@ class LoaderMod(loader.Module):
     async def client_ready(self):
         while not (settings := self.lookup("settings")):
             await asyncio.sleep(0.5)
+
+        if self.config["MODULES_REPO"].strip("/") == "https://hikka.werwolf.pp.ua":
+            self.config["MODULES_REPO"] = "https://github.com/Splaueef/host/raw/main"
 
         self._storage = RemoteStorage(self._client)
 
@@ -270,8 +271,10 @@ class LoaderMod(loader.Module):
                 for i, link in enumerate(set(await self._get_repo(repo)))
             }
             for repo_id, repo in enumerate(
-                [self.config["MODULES_REPO"]]
-                + ([] if only_primary else self.config["ADDITIONAL_REPOS"])
+                dict.fromkeys(
+                    [self.config["MODULES_REPO"]]
+                    + ([] if only_primary else self.config["ADDITIONAL_REPOS"])
+                )
             )
             if repo.startswith("http")
         }

@@ -7,6 +7,7 @@
 import copy
 import inspect
 import logging
+import re
 import time
 import typing
 
@@ -144,6 +145,11 @@ class CustomTelegramClient(TelegramClient):
         # parsed via inspect.stack()
         _hikka_client_id_logging_tag = copy.copy(self.tg_id)  # noqa: F841
 
+        if isinstance(entity, str):
+            user_link = re.fullmatch(r"tg://user\?id=(\d+)", entity)
+            if user_link:
+                entity = int(user_link.group(1))
+
         if not hashable(entity):
             try:
                 hashable_entity = next(
@@ -200,6 +206,14 @@ class CustomTelegramClient(TelegramClient):
 
         return copy.deepcopy(resolved_entity)
 
+    async def get_input_entity(self, entity: EntityLike):
+        if isinstance(entity, str):
+            user_link = re.fullmatch(r"tg://user\?id=(\d+)", entity)
+            if user_link:
+                entity = int(user_link.group(1))
+
+        return await super().get_input_entity(entity)
+
     async def get_perms_cached(
         self,
         entity: EntityLike,
@@ -220,6 +234,11 @@ class CustomTelegramClient(TelegramClient):
         # Will be used to determine, which client caused logging messages
         # parsed via inspect.stack()
         _hikka_client_id_logging_tag = copy.copy(self.tg_id)  # noqa: F841
+
+        if isinstance(entity, str):
+            user_link = re.fullmatch(r"tg://user\?id=(\d+)", entity)
+            if user_link:
+                entity = int(user_link.group(1))
 
         entity = await self.get_entity(entity)
         user = await self.get_entity(user) if user else None
