@@ -155,7 +155,7 @@ class HikkaInfoMod(loader.Module):
                 else {"message": self._render_info(True)}
             ),
             "thumb": (
-                "https://github.com/Splaueef/hikka/raw/main/assets/hikka_pfp.png"
+                "https://github.com/Splaueef/assets/raw/main/hikka_banner.png"
             ),
             "reply_markup": self._get_mark(),
         }

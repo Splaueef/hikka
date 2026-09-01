@@ -229,22 +229,26 @@ class LoaderMod(loader.Module):
         logger.debug("Loading modules: %s", todo)
         return todo
 
-    async def _get_repo(self, repo: str) -> str:
+    async def _get_repo(self, repo: str) -> typing.List[str]:
         repo = repo.strip("/")
 
         if self._links_cache.get(repo, {}).get("exp", 0) >= time.time():
             return self._links_cache[repo]["data"]
 
-        res = await utils.run_sync(
-            requests.get,
-            f"{repo}/full.txt",
-            timeout=int(self.config["HTTP_TIMEOUT"]),
-            auth=(
-                tuple(self.config["basic_auth"].split(":", 1))
-                if self.config["basic_auth"]
-                else None
-            ),
-        )
+        try:
+            res = await utils.run_sync(
+                requests.get,
+                f"{repo}/full.txt",
+                timeout=int(self.config["HTTP_TIMEOUT"]),
+                auth=(
+                    tuple(self.config["basic_auth"].split(":", 1))
+                    if self.config["basic_auth"]
+                    else None
+                ),
+            )
+        except requests.RequestException:
+            logger.warning("Unable to load module repository %s", repo, exc_info=True)
+            return []
 
         if not str(res.status_code).startswith("2"):
             logger.debug(
@@ -268,7 +272,7 @@ class LoaderMod(loader.Module):
         return {
             repo: {
                 f"Mod/{repo_id}/{i}": f'{repo.strip("/")}/{link}.py'
-                for i, link in enumerate(set(await self._get_repo(repo)))
+                for i, link in enumerate(dict.fromkeys(await self._get_repo(repo)))
             }
             for repo_id, repo in enumerate(
                 dict.fromkeys(
@@ -471,7 +475,7 @@ class LoaderMod(loader.Module):
     ):
         if any(
             line.replace(" ", "") == "#scope:ffmpeg" for line in doc.splitlines()
-        ) and os.system("ffmpeg -version 1>/dev/null 2>/dev/null"):
+        ) and shutil.which("ffmpeg") is None:
             if isinstance(message, Message):
                 await utils.answer(message, self.strings("ffmpeg_required"))
             return
@@ -1210,14 +1214,21 @@ class LoaderMod(loader.Module):
     async def _inline__clearmodules(self, call: InlineCall):
         self.set("loaded_modules", {})
 
-        for file in os.scandir(loader.LOADED_MODULES_DIR):
-            try:
-                shutil.rmtree(file.path)
-            except Exception:
-                logger.debug("Failed to remove %s", file.path, exc_info=True)
+        await asyncio.to_thread(self._clear_loaded_modules)
 
         await utils.answer(call, self.strings("all_modules_deleted"))
         await self.lookup("Updater").restart_common(call)
+
+    @staticmethod
+    def _clear_loaded_modules() -> None:
+        for entry in os.scandir(loader.LOADED_MODULES_DIR):
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    shutil.rmtree(entry.path)
+                else:
+                    os.unlink(entry.path)
+            except OSError:
+                logger.warning("Failed to remove %s", entry.path, exc_info=True)
 
     async def _update_modules(self):
         todo = await self._get_modules_to_load()
@@ -1248,13 +1259,17 @@ class LoaderMod(loader.Module):
 
     def flush_cache(self) -> int:
         """Flush the cache of links to modules"""
-        count = sum(map(len, self._links_cache.values()))
+        count = self.inspect_cache()
         self._links_cache = {}
         return count
 
     def inspect_cache(self) -> int:
         """Inspect the cache of links to modules"""
-        return sum(map(len, self._links_cache.values()))
+        return sum(
+            len(entry.get("data", []))
+            for entry in self._links_cache.values()
+            if isinstance(entry, dict)
+        )
 
     async def reload_core(self) -> int:
         """Forcefully reload all core modules"""

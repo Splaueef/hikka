@@ -25,6 +25,7 @@
 import asyncio
 import contextlib
 import fnmatch
+import io
 import logging
 import mimetypes
 import os
@@ -32,6 +33,7 @@ import pty
 import re
 import shlex
 import shutil
+import signal
 import tempfile
 import time
 import typing
@@ -53,6 +55,8 @@ SENSITIVE_VALUE_RE = re.compile(
 )
 BEARER_TOKEN_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}")
 TELEGRAM_BOT_TOKEN_RE = re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
+OUTPUT_TRUNCATED_MARKER = b"\n[... earlier terminal output truncated ...]\n"
+MAX_INLINE_OUTPUT_MESSAGES = 10
 
 
 def redact_sensitive_text(text: str) -> str:
@@ -103,44 +107,58 @@ def format_output_page(title: str, body: str, page: int, total: int) -> str:
     return f"{title}{suffix}\n<blockquote>{body}</blockquote>"
 
 
+def append_limited_output(data: bytearray, chunk: bytes, limit: int) -> None:
+    """Append output while keeping memory use bounded and retaining the newest data."""
+    data.extend(chunk)
+    if not limit or len(data) <= limit:
+        return
+
+    tail_size = max(0, limit - len(OUTPUT_TRUNCATED_MARKER))
+    tail = bytes(data[-tail_size:]) if tail_size else b""
+    data[:] = OUTPUT_TRUNCATED_MARKER[:limit] + tail
+
+
 def hash_msg(message):
     return f"{str(utils.get_chat_id(message))}/{str(message.id)}"
 
 
-async def read_stream(func: callable, stream, delay: float):
+async def read_stream(func: callable, stream, delay: float, limit: int = 0):
     last_task = None
-    data = b""
+    data = bytearray()
     while True:
-        dat = await stream.read(1)
+        dat = await stream.read(4096)
 
         if not dat:
             # EOF
             if last_task:
                 # Send all pending data
                 last_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await last_task
+            if data:
                 await func(clean_terminal_output(data.decode(errors="replace")))
                 # If there is no last task there is inherently no data, so theres no point sending a blank string
             break
 
-        data += dat
+        append_limited_output(data, dat, limit)
 
-        if last_task:
-            last_task.cancel()
+        if last_task is None or last_task.done():
+            if last_task is not None:
+                await last_task
+            last_task = asyncio.create_task(sleep_for_task(func, data, delay))
 
-        last_task = asyncio.ensure_future(sleep_for_task(func, data, delay))
 
-
-async def read_pty_stream(func: callable, fd: int, delay: float):
+async def read_pty_stream(func: callable, fd: int, delay: float, limit: int = 0):
     loop = asyncio.get_running_loop()
     last_task = None
-    data = b""
+    data = bytearray()
 
     while True:
         future = loop.create_future()
 
-        def _read_ready():
-            if not future.done():
-                future.set_result(None)
+        def _read_ready(waiter=future):
+            if not waiter.done():
+                waiter.set_result(None)
 
         loop.add_reader(fd, _read_ready)
         try:
@@ -156,20 +174,23 @@ async def read_pty_stream(func: callable, fd: int, delay: float):
         if not dat:
             if last_task:
                 last_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await last_task
+            if data:
                 await func(clean_terminal_output(data.decode(errors="replace")))
             break
 
-        data += dat
+        append_limited_output(data, dat, limit)
 
-        if last_task:
-            last_task.cancel()
+        if last_task is None or last_task.done():
+            if last_task is not None:
+                await last_task
+            last_task = asyncio.create_task(sleep_for_task(func, data, delay))
 
-        last_task = asyncio.ensure_future(sleep_for_task(func, data, delay))
 
-
-async def sleep_for_task(func: callable, data: bytes, delay: float):
+async def sleep_for_task(func: callable, data: bytearray, delay: float):
     await asyncio.sleep(delay)
-    await func(clean_terminal_output(data.decode(errors="replace")))
+    await func(clean_terminal_output(bytes(data).decode(errors="replace")))
 
 
 class MessageEditor:
@@ -269,6 +290,18 @@ class MessageEditor:
             f"<b>Full terminal output:</b> <code>{utils.escape_html(command)}</code>"
         )
         chunks = split_text_for_telegram(output)
+        if len(chunks) > MAX_INLINE_OUTPUT_MESSAGES:
+            output_file = io.BytesIO(output.encode())
+            output_file.name = "terminal-output.txt"
+            await self.message.client.send_file(
+                self.message.peer_id,
+                output_file,
+                caption=title,
+                reply_to=getattr(self.request_message, "id", None),
+                force_document=True,
+            )
+            return
+
         for index, chunk in enumerate(chunks, 1):
             await self.message.client.send_message(
                 self.message.peer_id,
@@ -278,6 +311,9 @@ class MessageEditor:
             )
 
     def update_process(self, process, input_writer=None):
+        pass
+
+    async def cleanup(self):
         pass
 
 
@@ -323,6 +359,17 @@ class SudoMessageEditor(MessageEditor):
         if self.process and self.process.stdin:
             self.process.stdin.write(data)
 
+    def _event_client(self):
+        message = self.message[0] if isinstance(self.message, (list, tuple)) else self.message
+        return message.client
+
+    def _remove_auth_handler(self):
+        if not self._auth_handler_registered:
+            return
+
+        self._event_client().remove_event_handler(self.on_message_edited)
+        self._auth_handler_registered = False
+
     @staticmethod
     def _last_nonempty_line(text: str) -> str:
         normalized = text.replace("\r", "\n")
@@ -347,8 +394,12 @@ class SudoMessageEditor(MessageEditor):
         except telethon.errors.rpcerrorlist.MessageNotModifiedError as e:
             logger.debug(e)
 
+        if self.authmsg is not None:
+            with contextlib.suppress(Exception):
+                await self.authmsg.delete()
+
         command = "<code>" + utils.escape_html(self._redact(self.command)) + "</code>"
-        self.authmsg = await self.message[0].client.send_message(
+        self.authmsg = await self._event_client().send_message(
             "me",
             self.strings("auth_msg").format(
                 utils.escape_html(prompt),
@@ -357,13 +408,21 @@ class SudoMessageEditor(MessageEditor):
         )
 
         if self._auth_handler_registered:
-            self.message[0].client.remove_event_handler(self.on_message_edited)
+            self._remove_auth_handler()
 
-        self.message[0].client.add_event_handler(
+        self._event_client().add_event_handler(
             self.on_message_edited,
             telethon.events.messageedited.MessageEdited(chats=["me"]),
         )
         self._auth_handler_registered = True
+
+    async def cleanup(self):
+        self._remove_auth_handler()
+        if self.authmsg is not None:
+            with contextlib.suppress(Exception):
+                await self.authmsg.delete()
+        self.authmsg = None
+        self._input_writer = None
 
     async def update_stderr(self, stderr):
         logger.debug("stderr update " + stderr)
@@ -518,6 +577,9 @@ class TerminalMod(loader.Module):
         "name": "Terminal",
         "fw_protect": "How long to wait in seconds between edits in commands",
         "timeout_cfg": "Maximum command runtime in seconds. 0 disables timeout",
+        "max_output_size_cfg": (
+            "Maximum stdout/stderr bytes retained per terminal stream. 0 disables the limit"
+        ),
         "interactive_tty_cfg": (
             "Run terminal commands in a pseudo-terminal so interactive password prompts work"
         ),
@@ -771,6 +833,12 @@ class TerminalMod(loader.Module):
                 validator=loader.validators.Integer(minimum=0),
             ),
             loader.ConfigValue(
+                "MAX_OUTPUT_SIZE",
+                2 * 1024 * 1024,
+                lambda: self.strings("max_output_size_cfg"),
+                validator=loader.validators.Integer(minimum=0),
+            ),
+            loader.ConfigValue(
                 "INTERACTIVE_TTY",
                 True,
                 lambda: self.strings("interactive_tty_cfg"),
@@ -952,6 +1020,33 @@ class TerminalMod(loader.Module):
             return shell
 
         return "/bin/bash" if os.path.exists("/bin/bash") else "/bin/sh"
+
+    @staticmethod
+    def _signal_process(process, sig: signal.Signals) -> None:
+        if process.returncode is not None:
+            return
+
+        try:
+            os.killpg(process.pid, sig)
+        except (OSError, ProcessLookupError):
+            with contextlib.suppress(OSError, ProcessLookupError):
+                process.send_signal(sig)
+
+    @classmethod
+    async def _stop_process(cls, process, force: bool = False) -> None:
+        if process.returncode is not None:
+            return
+
+        cls._signal_process(process, signal.SIGKILL if force else signal.SIGTERM)
+        if force:
+            await process.wait()
+            return
+
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            cls._signal_process(process, signal.SIGKILL)
+            await process.wait()
 
     @staticmethod
     def _append_sudo_stdin_switch(cmd: str) -> str:
@@ -1245,6 +1340,12 @@ class TerminalMod(loader.Module):
 
     async def on_unload(self):
         self._stop_all_scripts()
+        await asyncio.gather(
+            *(self._stop_process(process) for process in set(self.activecmds.values())),
+            return_exceptions=True,
+        )
+        self.activecmds.clear()
+        self.activeinputs.clear()
 
     def _get_scripts(self) -> typing.Dict[str, dict]:
         scripts = self.get("scripts", {})
@@ -1264,12 +1365,14 @@ class TerminalMod(loader.Module):
             task.cancel()
         self._script_tasks.clear()
         self._script_snapshots.clear()
+        self._script_read_offsets.clear()
 
     def _stop_script(self, name: str):
         task = self._script_tasks.pop(name, None)
         if task:
             task.cancel()
         self._script_snapshots.pop(name, None)
+        self._script_read_offsets.pop(name, None)
 
     def _start_script(self, name: str, script: dict):
         self._stop_script(name)
@@ -1432,14 +1535,22 @@ class TerminalMod(loader.Module):
         if stat.st_size < previous_offset:
             previous_offset = 0
 
+        output_limit = int(self.config["MAX_OUTPUT_SIZE"])
+        truncated = bool(output_limit and stat.st_size - previous_offset > output_limit)
+        if truncated:
+            previous_offset = max(0, stat.st_size - output_limit)
+
         try:
             with open(path, "rb") as file:
                 file.seek(previous_offset)
-                data = file.read()
+                data = file.read(output_limit or -1)
+                new_offset = file.tell()
         except OSError:
             return ""
 
-        offsets[path] = stat.st_size
+        offsets[path] = new_offset
+        if truncated:
+            data = OUTPUT_TRUNCATED_MARKER + data
         return clean_terminal_output(data.decode(errors="replace"))
 
     def _script_delta_reader_command(
@@ -1551,6 +1662,8 @@ class TerminalMod(loader.Module):
 
         if not message:
             message = self.strings("done")
+        elif self.config["REDACT_SECRETS"]:
+            message = redact_sensitive_text(message)
 
         script_name = str(variables.get("script", ""))
         if len(script_name) > 128:
@@ -1606,12 +1719,15 @@ class TerminalMod(loader.Module):
     async def _script_loop(self, name: str, script: dict):
         try:
             if script["type"] == "watch":
-                self._script_snapshots[name] = self._script_snapshot(script)
+                self._script_snapshots[name] = await asyncio.to_thread(
+                    self._script_snapshot,
+                    script,
+                )
                 self._remember_script_read_offsets(name, self._script_snapshots[name])
                 while True:
                     await asyncio.sleep(int(self.config["SCRIPTS_POLL_INTERVAL"]))
                     old = self._script_snapshots.get(name, {})
-                    new = self._script_snapshot(script)
+                    new = await asyncio.to_thread(self._script_snapshot, script)
                     self._script_snapshots[name] = new
                     for event, path in self._watch_changes(old, new, script["event"]):
                         await self._run_script_pipeline(
@@ -2260,6 +2376,7 @@ class TerminalMod(loader.Module):
                 stdout=slave_fd,
                 stderr=slave_fd,
                 cwd=cwd,
+                start_new_session=True,
             )
             os.close(slave_fd)
             slave_fd = None
@@ -2277,6 +2394,7 @@ class TerminalMod(loader.Module):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                start_new_session=True,
             )
 
         if editor is None:
@@ -2296,6 +2414,7 @@ class TerminalMod(loader.Module):
                     editor.update_stdout,
                     master_fd,
                     self.config["FLOOD_WAIT_PROTECT"],
+                    self.config["MAX_OUTPUT_SIZE"],
                 )
             )
         else:
@@ -2304,11 +2423,13 @@ class TerminalMod(loader.Module):
                     editor.update_stdout,
                     sproc.stdout,
                     self.config["FLOOD_WAIT_PROTECT"],
+                    self.config["MAX_OUTPUT_SIZE"],
                 ),
                 read_stream(
                     editor.update_stderr,
                     sproc.stderr,
                     self.config["FLOOD_WAIT_PROTECT"],
+                    self.config["MAX_OUTPUT_SIZE"],
                 ),
             )
 
@@ -2332,17 +2453,15 @@ class TerminalMod(loader.Module):
                 )
             except asyncio.TimeoutError:
                 timed_out = True
-                sproc.terminate()
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(sproc.wait(), timeout=5)
-
-                if sproc.returncode is None:
-                    sproc.kill()
-                    await sproc.wait()
-
+                await self._stop_process(sproc)
                 rc = sproc.returncode
 
-            await readers
+            try:
+                await asyncio.wait_for(readers, timeout=5)
+            except asyncio.TimeoutError:
+                logger.warning("Terminal output readers did not stop after process exit")
+                readers.cancel()
+                await asyncio.gather(readers, return_exceptions=True)
 
             if timed_out:
                 await editor.update_stderr(
@@ -2352,8 +2471,15 @@ class TerminalMod(loader.Module):
             new_cwd = self._read_tracked_cwd(cwd_file)
             await editor.cmd_ended(rc, new_cwd)
         finally:
+            if sproc.returncode is None:
+                await self._stop_process(sproc)
+
             if not readers.done():
                 readers.cancel()
+            await asyncio.gather(readers, return_exceptions=True)
+
+            with contextlib.suppress(Exception):
+                await editor.cleanup()
 
             if slave_fd is not None:
                 with contextlib.suppress(OSError):
@@ -2379,13 +2505,12 @@ class TerminalMod(loader.Module):
 
         if hash_msg(await message.get_reply_message()) in self.activecmds:
             try:
-                if "-f" not in utils.get_args_raw(message):
-                    self.activecmds[
-                        hash_msg(await message.get_reply_message())
-                    ].terminate()
-                else:
-                    self.activecmds[hash_msg(await message.get_reply_message())].kill()
-            except Exception:
+                process = self.activecmds[hash_msg(await message.get_reply_message())]
+                await self._stop_process(
+                    process,
+                    force="-f" in utils.get_args_raw(message),
+                )
+            except (OSError, ProcessLookupError):
                 logger.exception("Killing process failed")
                 await utils.answer(message, self.strings("kill_fail"))
             else:

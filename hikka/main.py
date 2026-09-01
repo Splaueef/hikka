@@ -385,7 +385,11 @@ class Hikka:
             BASE_DIR = self.arguments.data_root
             BASE_PATH = Path(BASE_DIR)
             CONFIG_PATH = BASE_PATH / "config.json"
-        self.loop = asyncio.get_event_loop()
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
 
         self.clients = SuperList()
         self.ready = asyncio.Event()

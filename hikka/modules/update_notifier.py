@@ -21,6 +21,7 @@ class UpdateNotifier(loader.Module):
 
     def __init__(self):
         self._notified = None
+        self._pending = None
         self.config = loader.ModuleConfig(
             loader.ConfigValue(
                 "disable_notifications",
@@ -32,9 +33,7 @@ class UpdateNotifier(loader.Module):
     def get_changelog(self) -> str:
         try:
             repo = git.Repo()
-
-            for remote in repo.remotes:
-                remote.fetch()
+            repo.remote("origin").fetch(kill_after_timeout=30)
 
             if not (
                 diff := repo.git.log([f"HEAD..origin/{version.branch}", "--oneline"])
@@ -77,16 +76,21 @@ class UpdateNotifier(loader.Module):
 
     @loader.loop(interval=60, autostart=True)
     async def poller(self):
-        if self.config["disable_notifications"] or not self.get_changelog():
+        if self.config["disable_notifications"]:
             return
 
-        self._pending = self.get_latest()
+        changelog = await asyncio.to_thread(self.get_changelog)
+        if not changelog:
+            return
+
+        self._pending = await asyncio.to_thread(self.get_latest)
+        if not self._pending:
+            return
 
         if (
             self.get("ignore_permanent", False)
             and self.get("ignore_permanent") == self._pending
         ):
-            await asyncio.sleep(60)
             return
 
         if self._pending not in {utils.get_git_hash(), self._notified}:
@@ -98,10 +102,10 @@ class UpdateNotifier(loader.Module):
                     '<a href="https://github.com/Splaueef/hikka/compare/{}...{}">{}</a>'
                     .format(
                         utils.get_git_hash()[:12],
-                        self.get_latest()[:12],
-                        self.get_latest()[:6],
+                        self._pending[:12],
+                        self._pending[:6],
                     ),
-                    self.get_changelog(),
+                    changelog,
                 ),
                 reply_markup=self._markup(),
             )
@@ -128,7 +132,8 @@ class UpdateNotifier(loader.Module):
             return
 
         if call.data == "hikka/ignore_upd":
-            self.set("ignore_permanent", self.get_latest())
+            latest = self._pending or await asyncio.to_thread(self.get_latest)
+            self.set("ignore_permanent", latest)
             await call.answer(self.strings("latest_disabled"))
             return
 

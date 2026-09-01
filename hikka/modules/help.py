@@ -372,7 +372,7 @@ class Help(loader.Module):
     @loader.command()
     async def support(self, message):
         if message.out:
-            await self.request_join("@hikka_talks", self.strings("request_join"))
+            await self.request_join("@RotKranzUK", self.strings("request_join"))
 
         await utils.answer(
             message,
