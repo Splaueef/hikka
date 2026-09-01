@@ -29,7 +29,9 @@ printf '\nLocal setup: http://127.0.0.1:%s\n' "$PORT"
 printf 'Waiting for the temporary HTTPS login URL (it is also available in docker compose logs)...\n'
 
 for _ in {1..30}; do
-    if url="$(docker compose logs --no-color worker 2>&1 | sed -nE 's/.*(https:\/\/[^[:space:]]+\.(lhr\.life|localhost\.run)).*/\1/p' | tail -n 1)" && [[ -n "$url" ]]; then
+    if url="$(docker compose logs --no-color worker 2>&1 \
+        | sed -nE 's@.*(https://[a-zA-Z0-9.-]+\.lhr\.life)([[:space:]/,;)]|$).*@\1@p' \
+        | tail -n 1)" && [[ -n "$url" ]]; then
         printf 'Remote setup: %s\n' "$url"
         exit 0
     fi

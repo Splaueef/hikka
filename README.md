@@ -109,3 +109,36 @@ git clone https://github.com/Splaueef/hikka
 cd Hikka
 pip install -r requirements.txt
 python3 -m hikka
+```
+
+### Docker installation
+
+Docker Engine with the Compose plugin must be installed and running. Clone the
+repository and start Hikka through the provided script:
+
+```bash
+git clone https://github.com/Splaueef/hikka.git
+cd hikka
+./docker.sh
+```
+
+The script builds the image, starts the container, and waits for the temporary
+HTTPS login link. Open the address shown after `Remote setup`; a valid address
+has the following form:
+
+```text
+https://<random-name>.lhr.life
+```
+
+Do **not** use `https://admin.localhost.run`: it is a localhost.run service
+page, not the Hikka login page. If the `lhr.life` address is not printed within
+30 seconds, keep watching the container output until the tunnel starts:
+
+```bash
+docker compose logs --follow worker
+```
+
+The tunnel requires an outbound SSH connection to `localhost.run` on port 22.
+For setup on the same machine, the local page remains available at
+`http://127.0.0.1:3429` by default. To select another local port, run, for
+example, `EXTERNAL_PORT=8080 ./docker.sh`.
