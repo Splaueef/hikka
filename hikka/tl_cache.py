@@ -11,14 +11,14 @@ import re
 import time
 import typing
 
-from hikkatl import TelegramClient
-from hikkatl.errors.rpcerrorlist import TopicDeletedError
-from hikkatl.hints import EntityLike
-from hikkatl.network import MTProtoSender
-from hikkatl.tl.functions.channels import GetFullChannelRequest
-from hikkatl.tl.functions.users import GetFullUserRequest
-from hikkatl.tl.tlobject import TLRequest
-from hikkatl.tl.types import (
+from telethon import TelegramClient
+from telethon.errors.rpcerrorlist import TopicDeletedError
+from telethon.hints import EntityLike
+from telethon.network import MTProtoSender
+from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.tlobject import TLRequest
+from telethon.tl.types import (
     ChannelFull,
     Message,
     Updates,
@@ -26,7 +26,7 @@ from hikkatl.tl.types import (
     UpdateShort,
     UserFull,
 )
-from hikkatl.utils import is_list_like
+from telethon.utils import is_list_like
 
 from .types import (
     CacheRecordEntity,

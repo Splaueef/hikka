@@ -38,7 +38,7 @@ import typing
 import uuid
 from pathlib import Path
 
-import hikkatl
+import telethon
 
 from .. import loader, utils
 
@@ -175,7 +175,7 @@ async def sleep_for_task(func: callable, data: bytes, delay: float):
 class MessageEditor:
     def __init__(
         self,
-        message: hikkatl.tl.types.Message,
+        message: telethon.tl.types.Message,
         command: str,
         config,
         strings,
@@ -230,10 +230,10 @@ class MessageEditor:
         )
         text += self.strings("end")
 
-        with contextlib.suppress(hikkatl.errors.rpcerrorlist.MessageNotModifiedError):
+        with contextlib.suppress(telethon.errors.rpcerrorlist.MessageNotModifiedError):
             try:
                 self.message = await utils.answer(self.message, text)
-            except hikkatl.errors.rpcerrorlist.MessageTooLongError as e:
+            except telethon.errors.rpcerrorlist.MessageTooLongError as e:
                 logger.error(e)
                 logger.error(text)
         # The message is never empty due to the template header
@@ -344,7 +344,7 @@ class SudoMessageEditor(MessageEditor):
 
         try:
             await utils.answer(self.message, text)
-        except hikkatl.errors.rpcerrorlist.MessageNotModifiedError as e:
+        except telethon.errors.rpcerrorlist.MessageNotModifiedError as e:
             logger.debug(e)
 
         command = "<code>" + utils.escape_html(self._redact(self.command)) + "</code>"
@@ -361,7 +361,7 @@ class SudoMessageEditor(MessageEditor):
 
         self.message[0].client.add_event_handler(
             self.on_message_edited,
-            hikkatl.events.messageedited.MessageEdited(chats=["me"]),
+            telethon.events.messageedited.MessageEdited(chats=["me"]),
         )
         self._auth_handler_registered = True
 
@@ -451,7 +451,7 @@ class SudoMessageEditor(MessageEditor):
             # The user has provided interactive authentication. Send secret to stdin.
             try:
                 self.authmsg = await utils.answer(message, self.strings("auth_ongoing"))
-            except hikkatl.errors.rpcerrorlist.MessageNotModifiedError:
+            except telethon.errors.rpcerrorlist.MessageNotModifiedError:
                 # Try to clear personal info if the edit fails
                 await message.delete()
 
@@ -499,13 +499,13 @@ class RawMessageEditor(SudoMessageEditor):
         logger.debug(text)
 
         with contextlib.suppress(
-            hikkatl.errors.rpcerrorlist.MessageNotModifiedError,
-            hikkatl.errors.rpcerrorlist.MessageEmptyError,
+            telethon.errors.rpcerrorlist.MessageNotModifiedError,
+            telethon.errors.rpcerrorlist.MessageEmptyError,
             ValueError,
         ):
             try:
                 await utils.answer(self.message, text)
-            except hikkatl.errors.rpcerrorlist.MessageTooLongError as e:
+            except telethon.errors.rpcerrorlist.MessageTooLongError as e:
                 logger.error(e)
                 logger.error(text)
 
@@ -1174,7 +1174,7 @@ class TerminalMod(loader.Module):
     def _is_forever_terminal_mode(expires: typing.Optional[int]) -> bool:
         return isinstance(expires, int) and expires <= 0
 
-    def _is_terminal_mode_enabled(self, message: hikkatl.tl.types.Message) -> bool:
+    def _is_terminal_mode_enabled(self, message: telethon.tl.types.Message) -> bool:
         state = self._terminal_mode_state()
         chat_id = str(utils.get_chat_id(message))
         expires = state.get(chat_id)
@@ -1192,7 +1192,7 @@ class TerminalMod(loader.Module):
 
         return True
 
-    def _set_terminal_mode(self, message: hikkatl.tl.types.Message, duration: int):
+    def _set_terminal_mode(self, message: telethon.tl.types.Message, duration: int):
         state = self._terminal_mode_state()
         state[str(utils.get_chat_id(message))] = (
             0 if duration <= 0 else int(time.time() + duration)
@@ -1205,7 +1205,7 @@ class TerminalMod(loader.Module):
 
     async def _run_terminal_mode_shell_builtin(
         self,
-        message: hikkatl.tl.types.Message,
+        message: telethon.tl.types.Message,
         builtin: str,
         args: str,
     ) -> bool:
@@ -1223,14 +1223,14 @@ class TerminalMod(loader.Module):
         await self.run_command(message, command)
         return True
 
-    def _disable_terminal_mode(self, message: hikkatl.tl.types.Message):
+    def _disable_terminal_mode(self, message: telethon.tl.types.Message):
         state = self._terminal_mode_state()
         state.pop(str(utils.get_chat_id(message)), None)
         self.set("terminal_mode", state)
 
     def _write_to_active_input(
         self,
-        message: hikkatl.tl.types.Message,
+        message: telethon.tl.types.Message,
         command: str,
     ) -> bool:
         active_input = self.activeinputs.get(str(utils.get_chat_id(message)))
@@ -1794,7 +1794,7 @@ class TerminalMod(loader.Module):
         await utils.answer(message, self.strings("script_usage"))
 
     @staticmethod
-    def _message_file_name(message: hikkatl.tl.types.Message) -> typing.Optional[str]:
+    def _message_file_name(message: telethon.tl.types.Message) -> typing.Optional[str]:
         file = getattr(message, "file", None)
         name = getattr(file, "name", None)
         if name:
@@ -2234,7 +2234,7 @@ class TerminalMod(loader.Module):
 
     async def run_command(
         self,
-        message: hikkatl.tl.types.Message,
+        message: telethon.tl.types.Message,
         cmd: str,
         editor: typing.Optional[MessageEditor] = None,
     ):

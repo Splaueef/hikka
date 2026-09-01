@@ -20,10 +20,10 @@ from aiogram.types import (
     InlineQueryResultArticle,
     InputTextMessageContent,
 )
-from aiogram.utils.exceptions import RetryAfter
-from hikkatl.errors.rpcerrorlist import ChatSendInlineForbiddenError
-from hikkatl.extensions.html import CUSTOM_EMOJIS
-from hikkatl.tl.types import Message
+from aiogram.exceptions import TelegramRetryAfter
+from telethon.extensions import html as telethon_html
+from telethon.errors.rpcerrorlist import ChatSendInlineForbiddenError
+from telethon.tl.types import Message
 
 from .. import main, utils
 from ..types import HikkaReplyMarkup
@@ -187,7 +187,8 @@ class List(InlineUnit):
                 )(
                     (
                         utils.get_platform_emoji()
-                        if self._client.hikka_me.premium and CUSTOM_EMOJIS
+                        if self._client.hikka_me.premium
+                        and telethon_html.CUSTOM_EMOJIS
                         else "🌘"
                     )
                     + self.translator.getkey("inline.opening_list"),
@@ -271,9 +272,9 @@ class List(InlineUnit):
                 reply_markup=self._list_markup(unit_id),
             )
             await call.answer()
-        except RetryAfter as e:
+        except TelegramRetryAfter as e:
             await call.answer(
-                f"Got FloodWait. Wait for {e.timeout} seconds",
+                f"Got FloodWait. Wait for {e.retry_after} seconds",
                 show_alert=True,
             )
         except Exception:
@@ -308,8 +309,10 @@ class List(InlineUnit):
                                 id=utils.rand(20),
                                 title="Hikka",
                                 input_message_content=InputTextMessageContent(
-                                    self.sanitise_text(unit["strings"][0]),
-                                    "HTML",
+                                    message_text=self.sanitise_text(
+                                        unit["strings"][0]
+                                    ),
+                                    parse_mode="HTML",
                                     disable_web_page_preview=True,
                                 ),
                                 reply_markup=self._list_markup(inline_query.query),

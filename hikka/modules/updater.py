@@ -18,12 +18,12 @@ import urllib.parse
 
 import git
 from git import GitCommandError, Repo
-from hikkatl.extensions.html import CUSTOM_EMOJIS
-from hikkatl.tl.functions.messages import (
+from telethon.extensions import html as telethon_html
+from telethon.tl.functions.messages import (
     GetDialogFiltersRequest,
     UpdateDialogFilterRequest,
 )
-from hikkatl.tl.types import DialogFilter, Message
+from telethon.tl.types import DialogFilter, Message
 
 from .. import loader, main, utils, version
 from .._internal import restart
@@ -700,7 +700,7 @@ class UpdaterMod(loader.Module):
             self.strings("restarting_caption").format(
                 utils.get_platform_emoji()
                 if self._client.hikka_me.premium
-                and CUSTOM_EMOJIS
+                and telethon_html.CUSTOM_EMOJIS
                 and isinstance(msg_obj, Message)
                 else "Hikka"
             ),
@@ -826,7 +826,7 @@ class UpdaterMod(loader.Module):
                         " document_id=5195050806105087456>✌️</emoji><emoji"
                         " document_id=5195457642587233944>✌️</emoji><b>"
                         if self._client.hikka_me.premium
-                        and CUSTOM_EMOJIS
+                        and telethon_html.CUSTOM_EMOJIS
                         and isinstance(msg_obj, Message)
                         else "lavHost"
                     ),

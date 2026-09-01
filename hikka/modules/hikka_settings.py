@@ -8,14 +8,14 @@ import logging
 import os
 import random
 
-import hikkatl
-from hikkatl.tl.functions.channels import JoinChannelRequest
-from hikkatl.tl.functions.messages import (
+import telethon
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import (
     GetDialogFiltersRequest,
     UpdateDialogFilterRequest,
 )
-from hikkatl.tl.types import Message
-from hikkatl.utils import get_display_name
+from telethon.tl.types import Message
+from telethon.utils import get_display_name
 
 from .. import loader, log, main, utils
 from .._internal import fw_protect, restart
@@ -466,7 +466,7 @@ class HikkaSettingsMod(loader.Module):
     async def inline__setting(self, call: InlineCall, key: str, state: bool = False):
         if callable(key):
             key()
-            hikkatl.extensions.html.CUSTOM_EMOJIS = not main.get_config_key(
+            telethon.extensions.html.CUSTOM_EMOJIS = not main.get_config_key(
                 "disable_custom_emojis"
             )
         else:

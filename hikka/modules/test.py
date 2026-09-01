@@ -12,7 +12,7 @@ import time
 import typing
 from io import BytesIO
 
-from hikkatl.tl.types import Message
+from telethon.tl.types import Message
 
 from .. import loader, main, utils
 from ..inline.types import InlineCall

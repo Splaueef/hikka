@@ -12,26 +12,26 @@ import logging
 import re
 import typing
 
-import hikkatl
-from hikkapyro import Client as PyroClient
-from hikkapyro import errors as pyro_errors
-from hikkapyro import raw
+import telethon
+from pyrogram import Client as PyroClient
+from pyrogram import errors as pyro_errors
+from pyrogram import raw
 
 from .. import utils
 from ..tl_cache import CustomTelegramClient
 from ..version import __version__
 
 PROXY = {
-    pyro_object: hikkatl.tl.alltlobjects.tlobjects[constructor_id]
+    pyro_object: telethon.tl.alltlobjects.tlobjects[constructor_id]
     for constructor_id, pyro_object in raw.all.objects.items()
-    if constructor_id in hikkatl.tl.alltlobjects.tlobjects
+    if constructor_id in telethon.tl.alltlobjects.tlobjects
 }
 
 REVERSED_PROXY = {
     **{tl_object: pyro_object for pyro_object, tl_object in PROXY.items()},
     **{
         tl_object: raw.all.objects[tl_object.CONSTRUCTOR_ID]
-        for _, tl_object in utils.iter_attrs(hikkatl.tl.custom)
+        for _, tl_object in utils.iter_attrs(telethon.tl.custom)
         if getattr(tl_object, "CONSTRUCTOR_ID", None) in raw.all.objects
     },
 }
@@ -82,9 +82,9 @@ class PyroProxyClient(PyroClient):
     def _on_event(
         self,
         event: typing.Union[
-            hikkatl.tl.types.Updates,
-            hikkatl.tl.types.UpdatesCombined,
-            hikkatl.tl.types.UpdateShort,
+            telethon.tl.types.Updates,
+            telethon.tl.types.UpdatesCombined,
+            telethon.tl.types.UpdateShort,
         ],
     ):
         asyncio.ensure_future(self.handle_updates(self._tl2pyro(event)))
@@ -114,14 +114,14 @@ class PyroProxyClient(PyroClient):
 
         try:
             r = await self.tl_client(self._pyro2tl(query))
-        except hikkatl.errors.rpcerrorlist.RPCError as e:
+        except telethon.errors.rpcerrorlist.RPCError as e:
             raise self._tl_error2pyro(e)
 
         return self._tl2pyro(r)
 
     @staticmethod
     def _tl_error2pyro(
-        error: hikkatl.errors.rpcerrorlist.RPCError,
+        error: telethon.errors.rpcerrorlist.RPCError,
     ) -> pyro_errors.RPCError:
         rpc = (
             re.sub(r"([A-Z])", r"_\1", error.__class__.__name__)
@@ -141,7 +141,7 @@ class PyroProxyClient(PyroClient):
             ),
         )()
 
-    def _pyro2tl(self, pyro_obj: raw.core.TLObject) -> hikkatl.tl.TLObject:
+    def _pyro2tl(self, pyro_obj: raw.core.TLObject) -> telethon.tl.TLObject:
         """
         Recursively converts Pyrogram TLObjects to Telethon TLObjects (methods,
         types and everything else, which is in tl schema)
@@ -172,7 +172,7 @@ class PyroProxyClient(PyroClient):
             }
         )
 
-    def _tl2pyro(self, tl_obj: hikkatl.tl.TLObject) -> raw.core.TLObject:
+    def _tl2pyro(self, tl_obj: telethon.tl.TLObject) -> raw.core.TLObject:
         """
         Recursively converts Telethon TLObjects to Pyrogram TLObjects (methods,
         types and everything else, which is in tl schema)
@@ -188,7 +188,7 @@ class PyroProxyClient(PyroClient):
             and hasattr(tl_obj, "sender_id")
         ):
             tl_obj = copy.copy(tl_obj)
-            tl_obj.from_id = hikkatl.tl.types.PeerUser(tl_obj.sender_id)
+            tl_obj.from_id = telethon.tl.types.PeerUser(tl_obj.sender_id)
 
         if isinstance(tl_obj, list):
             return [self._tl2pyro(i) for i in tl_obj]
@@ -199,7 +199,7 @@ class PyroProxyClient(PyroClient):
         if isinstance(tl_obj, int) and str(tl_obj).startswith("-100"):
             return int(str(tl_obj)[4:])
 
-        if not isinstance(tl_obj, hikkatl.tl.TLObject):
+        if not isinstance(tl_obj, telethon.tl.TLObject):
             return tl_obj
 
         if type(tl_obj) not in REVERSED_PROXY:
@@ -250,12 +250,12 @@ class PyroProxyClient(PyroClient):
         self,
         *args,
         **kwargs,
-    ) -> "typing.Union[hikkapyro.raw.types.PeerChat, hikkapyro.raw.types.PeerChannel, hikkapyro.raw.types.PeerUser]":  # type: ignore  # noqa: E501, F821
+    ) -> "typing.Union[pyrogram.raw.types.PeerChat, pyrogram.raw.types.PeerChannel, pyrogram.raw.types.PeerUser]":  # type: ignore  # noqa: E501, F821
         """
         Resolve a peer (user, chat or channel) from the given input.
         :param args: Arguments to pass to the Telethon client's
         :return: The resolved peer
-        :rtype: typing.Union[hikkapyro.raw.types.PeerChat, hikkapyro.raw.types.PeerChannel, hikkapyro.raw.types.PeerUser]
+        :rtype: typing.Union[pyrogram.raw.types.PeerChat, pyrogram.raw.types.PeerChannel, pyrogram.raw.types.PeerUser]
         """
         return self._tl2pyro(await self.tl_client.get_entity(*args, **kwargs))
 
