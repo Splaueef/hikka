@@ -13,6 +13,17 @@ from .. import utils
 
 logger = logging.getLogger(__name__)
 
+TUNNEL_URL_RE = re.compile(
+    r"https://[a-z0-9.-]+\.lhr\.life(?![a-z0-9.-])(?:/[^\s]*)?",
+    re.IGNORECASE,
+)
+
+
+def _extract_tunnel_url(output_line: str) -> typing.Optional[str]:
+    """Return the public lhr.life tunnel URL from an SSH output line."""
+    match = TUNNEL_URL_RE.search(output_line)
+    return match.group(0).rstrip("./,;)") if match else None
+
 
 class ProxyPasser:
     def __init__(self, change_url_callback: callable = lambda _: None):
@@ -49,11 +60,10 @@ class ProxyPasser:
     async def _process_stream(self, stdout_line: str) -> None:
         logger.debug(stdout_line)
 
-        regex = r"https://[^\s]+"
-        match = re.search(regex, stdout_line)
+        tunnel_url = _extract_tunnel_url(stdout_line)
 
-        if match:
-            self._tunnel_url = match.group(0).rstrip("./,;)")
+        if tunnel_url:
+            self._tunnel_url = tunnel_url
             self._change_url_callback(self._tunnel_url)
 
             logger.debug(

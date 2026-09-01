@@ -12,7 +12,7 @@ services:
         command: ["python", "-m", "hikka", "--proxy-pass", "--no-tty"]
         ports:
             # Keep the unencrypted setup page local. Remote setup uses the
-            # temporary HTTPS localhost.run URL printed in `docker compose logs`.
+            # temporary HTTPS lhr.life URL printed in `docker compose logs`.
             - "127.0.0.1:${EXTERNAL_PORT:-8080}:8080"
         security_opt:
             - no-new-privileges:true
