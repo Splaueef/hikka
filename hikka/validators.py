@@ -9,14 +9,14 @@ import re
 import typing
 
 import grapheme
-from emoji import get_emoji_unicode_dict
+from emoji import EMOJI_DATA
 
 from . import utils
 from .translations import SUPPORTED_LANGUAGES, translator
 
 ConfigAllowedTypes = typing.Union[tuple, list, str, int, bool, None]
 
-ALLOWED_EMOJIS = set(get_emoji_unicode_dict("en").values())
+ALLOWED_EMOJIS = set(EMOJI_DATA)
 
 
 class ValidationError(Exception):

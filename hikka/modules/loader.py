@@ -26,9 +26,9 @@ from importlib.machinery import ModuleSpec
 from urllib.parse import urlparse
 
 import requests
-from hikkatl.errors.rpcerrorlist import MediaCaptionTooLongError
-from hikkatl.tl.functions.channels import JoinChannelRequest
-from hikkatl.tl.types import Channel, Message
+from telethon.errors.rpcerrorlist import MediaCaptionTooLongError
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.types import Channel, Message
 
 from .. import loader, main, utils
 from .._local_storage import RemoteStorage
@@ -639,8 +639,8 @@ class LoaderMod(loader.Module):
                                 {
                                     "sklearn": "scikit-learn",
                                     "pil": "Pillow",
-                                    "hikkatl": "Hikka-TL",
-                                    "pyrogram": "Hikka-Pyro",
+                                    "telethon": "Telethon",
+                                    "pyrogram": "pyrofork",
                                 }.get(e.name.lower(), e.name)
                             ]
 

@@ -8,8 +8,8 @@ import difflib
 import inspect
 import logging
 
-from hikkatl.extensions.html import CUSTOM_EMOJIS
-from hikkatl.tl.types import Message
+from telethon.extensions import html as telethon_html
+from telethon.tl.types import Message
 
 from .. import loader, utils
 from ..compat.dragon import DRAGON_EMOJI
@@ -379,7 +379,8 @@ class Help(loader.Module):
             self.strings("support").format(
                 (
                     utils.get_platform_emoji()
-                    if self._client.hikka_me.premium and CUSTOM_EMOJIS
+                    if self._client.hikka_me.premium
+                    and telethon_html.CUSTOM_EMOJIS
                     else "🌘"
                 )
             ),

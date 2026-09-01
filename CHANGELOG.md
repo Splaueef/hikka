@@ -1,5 +1,15 @@
 # Hikka Changelog
 
+## 🌑 Hikka 1.7.0
+
+- Replace the retired Hikka-TL fork with maintained Telethon 1.44.0 (layer 227).
+- Preserve legacy Hikka custom-emoji HTML through a tested compatibility layer.
+- Replace Hikka-Pyro layer 158 with maintained Pyrofork layer 220.
+- Migrate the inline bot subsystem from aiogram 2 to aiogram 3.
+- Update runtime dependencies and remove all vulnerabilities known to `pip-audit`.
+- Require Python 3.11 or newer and harden the production Docker image.
+- Add regression, dependency-audit, multi-version Python, and Docker CI checks.
+
 ## 🌑 Grand finale
 
 - Remove all code, that might (even on paper) be considered as a security risk.

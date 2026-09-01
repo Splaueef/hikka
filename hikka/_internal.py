@@ -43,7 +43,8 @@ def restart():
             "Got in a loop, exiting\nYou probably need to manually remove existing"
             " packages and then restart Hikka. Run `pip uninstall -y telethon"
             " telethon-mod hikka-tl hikka-tl-new pyrogram hikka-pyro"
-            " hikka-pyro-new`, then restart Hikka."
+            " hikka-pyro-new pyrofork tgcrypto tgcrypto-pyrofork`, then restart"
+            " Hikka."
         )
         sys.exit(0)
 

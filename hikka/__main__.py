@@ -7,6 +7,7 @@
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
 import getpass
+import importlib.util
 import os
 import subprocess
 import sys
@@ -44,8 +45,11 @@ def deps():
             "hikka-tl",
             "hikka-tl-new",
             "pyrogram",
+            "pyrofork",
             "hikka-pyro",
             "hikka-pyro-new",
+            "tgcrypto",
+            "tgcrypto-pyrofork",
         ],
         check=False,
     )
@@ -72,25 +76,36 @@ def restart():
     _restart()
 
 
-if sys.version_info < (3, 8, 0):
-    print("🚫 Error: you must use at least Python version 3.8.0")
+if sys.version_info < (3, 11, 0):
+    print("🚫 Error: you must use at least Python version 3.11.0")
 elif __package__ != "hikka":  # In case they did python __main__.py
     print("🚫 Error: you cannot run this as a script; you must execute as a package")
 else:
     try:
-        import hikkatl
+        import telethon
     except Exception:
         pass
     else:
         try:
-            import hikkatl  # noqa: F811
+            import telethon  # noqa: F811
 
-            if tuple(map(int, hikkatl.__version__.split("."))) < (2, 0, 4):
+            if tuple(map(int, telethon.__version__.split("."))) < (1, 44, 0):
                 raise ImportError
 
-            import hikkapyro
+            if importlib.util.find_spec("hikkatl") is not None:
+                # Remove the retired fork after an in-place update. Its package
+                # name differs from Telethon, so pip would otherwise keep both.
+                raise ImportError
 
-            if tuple(map(int, hikkapyro.__version__.split("."))) < (2, 0, 103):
+            import pyrogram
+
+            if tuple(map(int, pyrogram.__version__.split("."))) < (2, 3, 69):
+                raise ImportError
+
+            if pyrogram.raw.all.layer < 220:
+                raise ImportError
+
+            if importlib.util.find_spec("hikkapyro") is not None:
                 raise ImportError
         except ImportError:
             print("🔄 Installing dependencies...")

@@ -113,8 +113,17 @@ class BotInlineMessage:
         )
 
 
-class InlineCall(CallbackQuery, InlineMessage):
-    """Modified version of classic aiogram `CallbackQuery`"""
+class _AiogramProxy:
+    """Delegate Bot API methods to the update object bound by the dispatcher."""
+
+    original_call: object
+
+    def __getattr__(self, name):
+        return getattr(self.original_call, name)
+
+
+class InlineCall(_AiogramProxy, InlineMessage):
+    """Hikka wrapper around an aiogram callback query."""
 
     def __init__(
         self,
@@ -122,8 +131,6 @@ class InlineCall(CallbackQuery, InlineMessage):
         inline_manager: "InlineManager",  # type: ignore  # noqa: F821
         unit_id: str,
     ):
-        CallbackQuery.__init__(self)
-
         for attr in {
             "id",
             "from_user",
@@ -145,8 +152,8 @@ class InlineCall(CallbackQuery, InlineMessage):
         )
 
 
-class BotInlineCall(CallbackQuery, BotInlineMessage):
-    """Modified version of classic aiogram `CallbackQuery`"""
+class BotInlineCall(_AiogramProxy, BotInlineMessage):
+    """Hikka wrapper around a callback query attached to a bot message."""
 
     def __init__(
         self,
@@ -154,8 +161,6 @@ class BotInlineCall(CallbackQuery, BotInlineMessage):
         inline_manager: "InlineManager",  # type: ignore  # noqa: F821
         unit_id: str,
     ):
-        CallbackQuery.__init__(self)
-
         for attr in {
             "id",
             "from_user",
@@ -185,23 +190,18 @@ class InlineUnit:
         """Made just for type specification"""
 
 
-class BotMessage(AiogramMessage):
-    """Modified version of original Aiogram Message"""
-
-    def __init__(self):
-        super().__init__()
+BotMessage = AiogramMessage
 
 
-class InlineQuery(AiogramInlineQuery):
-    """Modified version of original Aiogram InlineQuery"""
+class InlineQuery(_AiogramProxy):
+    """Hikka wrapper around an aiogram inline query."""
 
     def __init__(self, inline_query: AiogramInlineQuery):
-        super().__init__(self)
-
         for attr in {"id", "from_user", "query", "offset", "chat_type", "location"}:
             setattr(self, attr, getattr(inline_query, attr, None))
 
         self.inline_query = inline_query
+        self.original_call = inline_query
         self.args = (
             self.inline_query.query.split(maxsplit=1)[1]
             if len(self.inline_query.query.split()) > 1
@@ -216,12 +216,12 @@ class InlineQuery(AiogramInlineQuery):
                 title=title,
                 description=description,
                 input_message_content=InputTextMessageContent(
-                    "😶‍🌫️ <i>There is nothing here...</i>",
+                    message_text="😶‍🌫️ <i>There is nothing here...</i>",
                     parse_mode="HTML",
                 ),
-                thumb_url=thumb_url,
-                thumb_width=128,
-                thumb_height=128,
+                thumbnail_url=thumb_url,
+                thumbnail_width=128,
+                thumbnail_height=128,
             )
         ]
 

@@ -27,9 +27,9 @@ from aiogram.types import (
     InlineQueryResultVideo,
     InputTextMessageContent,
 )
-from hikkatl.errors.rpcerrorlist import ChatSendInlineForbiddenError
-from hikkatl.extensions.html import CUSTOM_EMOJIS
-from hikkatl.tl.types import Message
+from telethon.extensions import html as telethon_html
+from telethon.errors.rpcerrorlist import ChatSendInlineForbiddenError
+from telethon.tl.types import Message
 
 from .. import main, utils
 from ..types import HikkaReplyMarkup
@@ -272,7 +272,8 @@ class Form(InlineUnit):
                 )(
                     (
                         utils.get_platform_emoji()
-                        if self._client.hikka_me.premium and CUSTOM_EMOJIS
+                        if self._client.hikka_me.premium
+                        and telethon_html.CUSTOM_EMOJIS
                         else "🌘"
                     )
                     + self.translator.getkey("inline.opening_form"),
@@ -414,14 +415,14 @@ class Form(InlineUnit):
                                     )
                                 ),
                                 input_message_content=InputTextMessageContent(
-                                    (
+                                    message_text=(
                                         "🔄 <b>Transferring value to"
                                         " userbot...</b>\n<i>This message will be"
                                         " deleted automatically</i>"
                                         if inline_query.from_user.id == self._me
                                         else "🔄 <b>Transferring value to userbot...</b>"
                                     ),
-                                    "HTML",
+                                    parse_mode="HTML",
                                     disable_web_page_preview=True,
                                 ),
                             )
@@ -448,7 +449,7 @@ class Form(InlineUnit):
                             caption=form.get("text"),
                             parse_mode="HTML",
                             photo_url=form["photo"],
-                            thumb_url=(
+                            thumbnail_url=(
                                 "https://img.icons8.com/cotton/452/moon-satellite.png"
                             ),
                             reply_markup=self.generate_markup(
@@ -467,7 +468,7 @@ class Form(InlineUnit):
                             caption=form.get("text"),
                             parse_mode="HTML",
                             gif_url=form["gif"],
-                            thumb_url=(
+                            thumbnail_url=(
                                 "https://img.icons8.com/cotton/452/moon-satellite.png"
                             ),
                             reply_markup=self.generate_markup(
@@ -487,7 +488,7 @@ class Form(InlineUnit):
                             caption=form.get("text"),
                             parse_mode="HTML",
                             video_url=form["video"],
-                            thumb_url=(
+                            thumbnail_url=(
                                 "https://img.icons8.com/cotton/452/moon-satellite.png"
                             ),
                             mime_type="video/mp4",
@@ -556,8 +557,8 @@ class Form(InlineUnit):
                             id=utils.rand(20),
                             title="Hikka",
                             input_message_content=InputTextMessageContent(
-                                form["text"],
-                                "HTML",
+                                message_text=form["text"],
+                                parse_mode="HTML",
                                 disable_web_page_preview=True,
                             ),
                             reply_markup=self.generate_markup(inline_query.query),
