@@ -1,52 +1,39 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-PORT=3429 # Port to run the server on
-echo "EXTERNAL_PORT=$PORT" >.env
+readonly REPOSITORY="https://github.com/Splaueef/hikka.git"
+readonly PORT="${EXTERNAL_PORT:-3429}"
 
-eval "git clone https://github.com/Splaueef/hikka"
-cd Hikka
-
-touch hikka-install.log
-
-if ! [ -x "$(command -v docker-compose)" ]; then
-    printf "\033[0;34mInstalling docker...\e[0m"
-    if [ -f /etc/debian_version ]; then
-        sudo apt-get install \
-            apt-transport-https \
-            ca-certificates \
-            curl \
-            gnupg-agent \
-            software-properties-common -y 1>hikka-install.log 2>&1
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg |
-            sudo apt-key add - 1>hikka-install.log 2>&1
-        sudo add-apt-repository \
-            "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
-            $(lsb_release -cs) \
-            stable" 1>hikka-install.log 2>&1
-        sudo apt-get update -y 1>hikka-install.log 2>&1
-        sudo apt-get install docker-ce docker-ce-cli containerd.io -y 1>hikka-install.log 2>&1
-    elif [ -f /etc/arch-release ]; then
-        sudo pacman -Syu docker --noconfirm 1>hikka-install.log 2>&1
-    elif [ -f /etc/redhat-release ]; then
-        sudo yum install -y yum-utils 1>hikka-install.log 2>&1
-        sudo yum-config-manager \
-            --add-repo \
-            https://download.docker.com/linux/centos/docker-ce.repo
-        sudo yum install docker-ce docker-ce-cli containerd.io -y 1>hikka-install.log 2>&1
+if [[ ! -f docker-compose.yml ]]; then
+    if [[ -e Hikka ]]; then
+        printf 'Hikka already exists, but is not a usable checkout.\n' >&2
+        exit 1
     fi
-    printf "\033[0;32m - success\e[0m\n"
-    # Hikka uses docker-compose so we need to install that too
-    printf "\033[0;34mInstalling docker-compose...\e[0m"
-    pip install -U docker-compose 1>hikka-install.log 2>&1
-    chmod +x /usr/local/bin/docker-compose
-    printf "\033[0;32m - success\e[0m\n"
-else
-    printf "\033[0;32mDocker is already installed\e[0m\n"
+
+    git clone --depth 1 "$REPOSITORY" Hikka
+    cd Hikka
 fi
 
-printf "\033[0;34mBuilding docker image...\e[0m"
-sudo docker-compose up -d --build 1>hikka-install.log 2>&1
-printf "\033[0;32m - success\e[0m\n"
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    printf 'Docker Engine with the Compose plugin is required: https://docs.docker.com/engine/install/\n' >&2
+    exit 1
+fi
 
-printf "\033[0;32mFollow this url to continue installation:\e[0m\n"
-ssh "-o StrictHostKeyChecking=no" "-R 80:127.0.0.1:$PORT" "nokey@localhost.run" 2>&1 | grep "tunneled"
+umask 077
+printf 'EXTERNAL_PORT=%s\n' "$PORT" >.env
+
+printf 'Building and starting Hikka...\n'
+docker compose up --detach --build
+
+printf '\nLocal setup: http://127.0.0.1:%s\n' "$PORT"
+printf 'Waiting for the temporary HTTPS login URL (it is also available in docker compose logs)...\n'
+
+for _ in {1..30}; do
+    if url="$(docker compose logs --no-color worker 2>&1 | sed -nE 's/.*(https:\/\/[^[:space:]]+\.(lhr\.life|localhost\.run)).*/\1/p' | tail -n 1)" && [[ -n "$url" ]]; then
+        printf 'Remote setup: %s\n' "$url"
+        exit 0
+    fi
+    sleep 1
+done
+
+printf 'The tunnel is still starting. Follow it with: docker compose logs --follow worker\n' >&2

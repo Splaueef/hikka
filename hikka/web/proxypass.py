@@ -89,17 +89,22 @@ class ProxyPasser:
                 port,
             )
 
-            self._sproc = await asyncio.create_subprocess_shell(
-                (
-                    "ssh "
-                    "-o StrictHostKeyChecking=no "
-                    "-o UserKnownHostsFile=/dev/null "
-                    "-o ExitOnForwardFailure=yes "
-                    "-o ServerAliveInterval=30 "
-                    "-R "
-                    f"80:127.0.0.1:{port} "
-                    "nokey@localhost.run"
-                ),
+            self._sproc = await asyncio.create_subprocess_exec(
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "ExitOnForwardFailure=yes",
+                "-o",
+                "ServerAliveInterval=30",
+                "-o",
+                "ServerAliveCountMax=3",
+                "-N",
+                "-R",
+                f"80:127.0.0.1:{port}",
+                "nokey@localhost.run",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

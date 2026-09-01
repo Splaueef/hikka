@@ -1,9 +1,8 @@
 FROM python:3.11-slim
 
-ENV DOCKER=true
-ENV GIT_PYTHON_REFRESH=quiet
-
-ENV PIP_NO_CACHE_DIR=1 \
+ENV DOCKER=true \
+    GIT_PYTHON_REFRESH=quiet \
+    PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
@@ -18,15 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     /var/cache/apt/archives/* \
     /tmp/*
 
-# Окремий непривілейований користувач
-RUN useradd -m -u 10001 -s /bin/bash hikka
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin hikka
 
-RUN mkdir -p /data/Hikka \
-    && chown -R hikka:hikka /data
+RUN install -d -o hikka -g hikka /data /app
 
-WORKDIR /data/Hikka
+WORKDIR /app
 
-# Спочатку залежності — Docker зможе кешувати цей шар
 COPY --chown=hikka:hikka requirements.txt ./requirements.txt
 
 RUN python -m pip install --upgrade pip setuptools wheel \
@@ -35,14 +31,13 @@ RUN python -m pip install --upgrade pip setuptools wheel \
         --no-cache-dir \
         -r requirements.txt
 
-# Копіюємо код Hikka
 COPY --chown=hikka:hikka . .
 
 USER hikka
 
 EXPOSE 8080
 
-CMD ["python", "-m", "hikka"]
+CMD ["python", "-m", "hikka", "--proxy-pass", "--no-tty"]
 
 
 

@@ -164,3 +164,6 @@ config.json
 *.m4a
 *.mp3
 *.avi
+# Never send repository metadata or runtime credentials to the build daemon
+.git
+*.session*
