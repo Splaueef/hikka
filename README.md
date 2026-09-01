@@ -124,6 +124,10 @@ cd hikka
 ./docker.sh
 ```
 
+Docker Compose also starts a private Redis service and configures Hikka to use
+it for its database and database backups. Redis data is persisted in the
+`redis` Docker volume and is not exposed outside the Compose network.
+
 The script builds the image, starts the container, and waits for the temporary
 HTTPS login link. Open the address shown after `Remote setup`; a valid address
 has the following form:

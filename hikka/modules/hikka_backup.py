@@ -96,6 +96,9 @@ class HikkaBackupMod(loader.Module):
         return str(self._client.tg_id)
 
     def _redis(self) -> redis.Redis:
+        if redis_url := os.environ.get("REDIS_URL"):
+            return redis.Redis.from_url(redis_url, decode_responses=False)
+
         password = self.config["redis_password"] or None
         return redis.Redis.from_url(
             self._normalize_redis_uri(self.config["redis_uri"]),

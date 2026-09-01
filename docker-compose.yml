@@ -5,6 +5,12 @@ services:
             context: .
         volumes:
             - worker:/data
+        environment:
+            # Use the private Redis container for the database and backups.
+            - REDIS_URL=redis://redis:6379/0
+        depends_on:
+            redis:
+                condition: service_healthy
         init: true
         stop_signal: SIGINT
         stop_grace_period: 30s
@@ -28,5 +34,25 @@ services:
             retries: 3
             start_period: 30s
 
+    redis:
+        container_name: "hikka-redis"
+        image: redis:7.4-alpine
+        user: redis
+        command: ["redis-server", "--appendonly", "yes"]
+        volumes:
+            - redis:/data
+        restart: unless-stopped
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 5s
+
 volumes:
     worker:
+    redis:
