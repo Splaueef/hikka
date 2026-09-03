@@ -10,7 +10,6 @@ import json
 import logging
 import random
 import time
-import typing
 
 from telethon.tl import functions
 from telethon.tl.tlobject import TLRequest
@@ -44,21 +43,26 @@ GROUPS = [
 ]
 
 
-CONSTRUCTORS = {
-    (lambda x: x[0].lower() + x[1:])(
-        method.__class__.__name__.rsplit("Request", 1)[0]
-    ): method.CONSTRUCTOR_ID
-    for method in utils.array_sum(
-        [
-            [
-                method
-                for method in dir(getattr(functions, group))
-                if isinstance(method, TLRequest)
-            ]
-            for group in GROUPS
-        ]
-    )
-}
+def _get_constructors() -> dict[str, int]:
+    """Build a method-name to constructor-id map from Telethon request classes."""
+    constructors = {}
+    for group in GROUPS:
+        for request_cls in vars(getattr(functions, group)).values():
+            if (
+                not isinstance(request_cls, type)
+                or request_cls is TLRequest
+                or not issubclass(request_cls, TLRequest)
+                or not getattr(request_cls, "CONSTRUCTOR_ID", None)
+            ):
+                continue
+
+            name = request_cls.__name__.removesuffix("Request")
+            constructors[f"{name[0].lower()}{name[1:]}"] = request_cls.CONSTRUCTOR_ID
+
+    return constructors
+
+
+CONSTRUCTORS = _get_constructors()
 
 
 @loader.tds
@@ -68,9 +72,11 @@ class APIRatelimiterMod(loader.Module):
     strings = {"name": "APILimiter"}
 
     def __init__(self):
-        self._ratelimiter: typing.List[tuple] = []
+        self._ratelimiter: list[tuple[str, float]] = []
         self._suspend_until = 0
+        self._floodwait_until = 0
         self._lock = False
+        self._install_task = None
         self.config = loader.ModuleConfig(
             loader.ConfigValue(
                 "time_sample",
@@ -101,22 +107,29 @@ class APIRatelimiterMod(loader.Module):
                         "importChatInvite",
                     ]
                 ),
-                on_change=lambda: self._client.forbid_constructors(
-                    map(
-                        lambda x: CONSTRUCTORS[x],
-                        self.config["forbidden_constructors"],
-                    )
-                ),
+                on_change=self._apply_forbidden_methods,
             ),
         )
 
+    def _apply_forbidden_methods(self):
+        methods = self.config["forbidden_methods"]
+        unknown = [method for method in methods if method not in CONSTRUCTORS]
+        if unknown:
+            logger.warning("Unknown forbidden Telegram methods: %s", unknown)
+
+        self._client.forbid_constructors(
+            [CONSTRUCTORS[method] for method in methods if method in CONSTRUCTORS]
+        )
+
     async def client_ready(self):
-        asyncio.ensure_future(self._install_protection())
+        self._apply_forbidden_methods()
+        self._install_task = asyncio.create_task(self._install_protection())
 
     async def _install_protection(self):
         await asyncio.sleep(30)  # Restart lock
-        if hasattr(self._client._call, "_old_call_rewritten"):
-            raise loader.SelfUnload("Already installed")
+        if hasattr(self._client, "_old_call_rewritten"):
+            logger.debug("API ratelimiter is already installed")
+            return
 
         old_call = self._client._call
 
@@ -127,7 +140,11 @@ class APIRatelimiterMod(loader.Module):
             flood_sleep_threshold: int = None,
         ):
             await asyncio.sleep(random.randint(1, 5) / 100)
+            if (delay := self._floodwait_until - time.perf_counter()) > 0:
+                await asyncio.sleep(delay)
+
             req = (request,) if not is_list_like(request) else request
+            report = None
             for r in req:
                 if (
                     time.perf_counter() > self._suspend_until
@@ -136,7 +153,7 @@ class APIRatelimiterMod(loader.Module):
                         True,
                     )
                     and (
-                        r.__module__.rsplit(".", maxsplit=1)[1]
+                        r.__module__.rsplit(".", maxsplit=1)[-1]
                         in {"messages", "account", "channels"}
                     )
                 ):
@@ -164,20 +181,31 @@ class APIRatelimiterMod(loader.Module):
                         )
                         report.name = "local_fw_report.json"
 
-                        await self.inline.bot.send_document(
-                            self.tg_id,
-                            report,
-                            caption=self.inline.sanitise_text(
-                                self.strings("warning").format(
-                                    self.config["local_floodwait"],
-                                    prefix=utils.escape_html(self.get_prefix()),
-                                )
-                            ),
+                        self._floodwait_until = time.perf_counter() + int(
+                            self.config["local_floodwait"]
                         )
+                        self._ratelimiter.clear()
 
-                        # It is intented to use time.sleep instead of asyncio.sleep
-                        time.sleep(int(self.config["local_floodwait"]))
-                        self._lock = False
+            if report is not None:
+                try:
+                    await self.inline.bot.send_document(
+                        self.tg_id,
+                        report,
+                        caption=self.inline.sanitise_text(
+                            self.strings("warning").format(
+                                self.config["local_floodwait"],
+                                prefix=utils.escape_html(self.get_prefix()),
+                            )
+                        ),
+                    )
+                except Exception:
+                    logger.exception("Unable to send API flood protection report")
+
+            if (delay := self._floodwait_until - time.perf_counter()) > 0:
+                await asyncio.sleep(delay)
+
+            if self._lock and time.perf_counter() >= self._floodwait_until:
+                self._lock = False
 
             return await old_call(sender, request, ordered, flood_sleep_threshold)
 
@@ -187,6 +215,10 @@ class APIRatelimiterMod(loader.Module):
         logger.debug("Successfully installed ratelimiter")
 
     async def on_unload(self):
+        if self._install_task and not self._install_task.done():
+            self._install_task.cancel()
+            await asyncio.gather(self._install_task, return_exceptions=True)
+
         if hasattr(self._client, "_old_call_rewritten"):
             self._client._call = self._client._old_call_rewritten
             delattr(self._client, "_old_call_rewritten")

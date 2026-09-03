@@ -227,7 +227,10 @@ class InfiniteLoop:
         self.status = False
 
     def __del__(self):
-        self.stop()
+        task = getattr(self, "_task", None)
+        if task and not task.done():
+            with contextlib.suppress(RuntimeError):
+                task.cancel()
 
 
 def loop(

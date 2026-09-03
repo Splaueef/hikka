@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 MAX_MODULE_BACKUP_FILES = 200
 MAX_MODULE_BACKUP_TOTAL_SIZE = 25 * 1024 * 1024
 MAX_MODULE_BACKUP_FILE_SIZE = 2 * 1024 * 1024
+MAX_DATABASE_BACKUP_SIZE = 50 * 1024 * 1024
 
 
 @loader.tds
@@ -79,6 +80,12 @@ class HikkaBackupMod(loader.Module):
                 "Redis password for database backups",
                 validator=loader.validators.Hidden(),
             ),
+            loader.ConfigValue(
+                "redis_timeout",
+                10,
+                "Redis connection and operation timeout, in seconds",
+                validator=loader.validators.Integer(minimum=1, maximum=60),
+            ),
         )
 
     @staticmethod
@@ -100,17 +107,40 @@ class HikkaBackupMod(loader.Module):
             return redis.Redis.from_url(redis_url, decode_responses=False)
 
         password = self.config["redis_password"] or None
+        timeout = int(self.config["redis_timeout"])
         return redis.Redis.from_url(
             self._normalize_redis_uri(self.config["redis_uri"]),
             password=password,
             decode_responses=False,
+            socket_connect_timeout=timeout,
+            socket_timeout=timeout,
         )
+
+    @staticmethod
+    def _decode_database_backup(payload: typing.Union[bytes, str]) -> dict:
+        raw_payload = payload.encode() if isinstance(payload, str) else payload
+        if len(raw_payload) > MAX_DATABASE_BACKUP_SIZE:
+            raise ValueError("Database backup is too large")
+
+        try:
+            decoded = json.loads(raw_payload.decode())
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise ValueError("Database backup is not valid JSON") from e
+
+        if not isinstance(decoded, dict):
+            raise ValueError("Database backup root must be an object")
+
+        return decoded
 
     def _redis_save_sync(self) -> int:
         payload = json.dumps(self._db, ensure_ascii=True)
+        payload_size = len(payload.encode())
+        if payload_size > MAX_DATABASE_BACKUP_SIZE:
+            raise ValueError("Database backup is too large")
+
         client = self._redis()
         client.set(self._redis_key(), payload)
-        return len(payload.encode())
+        return payload_size
 
     def _redis_load_sync(self) -> typing.Optional[dict]:
         client = self._redis()
@@ -118,13 +148,10 @@ class HikkaBackupMod(loader.Module):
         if not payload:
             return None
 
-        if isinstance(payload, bytes):
-            payload = payload.decode()
-
-        return json.loads(payload)
+        return self._decode_database_backup(payload)
 
     def _redis_clear_sync(self) -> None:
-        self._redis().delete(self._redis_key())
+        self._redis().delete(self._redis_key(), self._redis_legacy_key())
 
     def _redis_check_sync(self) -> int:
         client = self._redis()
@@ -242,32 +269,26 @@ class HikkaBackupMod(loader.Module):
         self.set("last_backup", round(time.time()))
         await utils.answer(message, f"<b>{self.strings('saved')}</b>")
 
-    @loader.loop(interval=1, autostart=True)
+    @loader.loop(interval=60, autostart=True)
     async def handler(self):
+        period = self.get("period")
+        if not isinstance(period, (int, float)) or period <= 0:
+            return
+
+        now = time.time()
+        last_backup = self.get("last_backup")
+        if not isinstance(last_backup, (int, float)):
+            self.set("last_backup", round(now))
+            return
+
+        if now < last_backup + period:
+            return
+
         try:
-            if self.get("period") == "disabled":
-                raise loader.StopLoop
-
-            if not self.get("period"):
-                await asyncio.sleep(3)
-                return
-
-            if not self.get("last_backup"):
-                self.set("last_backup", round(time.time()))
-                await asyncio.sleep(self.get("period"))
-                return
-
-            await asyncio.sleep(
-                max(0, self.get("last_backup") + self.get("period") - time.time())
-            )
-
             await self._save_to_redis()
             self.set("last_backup", round(time.time()))
-        except loader.StopLoop:
-            raise
         except Exception:
             logger.exception("HikkaBackup failed")
-            await asyncio.sleep(60)
 
     @loader.command()
     async def backupdb(self, message: Message):
@@ -303,7 +324,8 @@ class HikkaBackupMod(loader.Module):
             decoded_text["hikka.inline"].pop("bot_token")
 
         if not self._db.process_db_autofix(decoded_text):
-            raise RuntimeError("Attempted to restore broken database")
+            await utils.answer(message, self.strings("invalid_backup"))
+            return
 
         self._db.clear()
         self._db.update(**decoded_text)
@@ -379,10 +401,15 @@ class HikkaBackupMod(loader.Module):
             )
             return
 
+        file_size = getattr(getattr(reply, "file", None), "size", None)
+        if file_size is not None and file_size > MAX_DATABASE_BACKUP_SIZE:
+            await utils.answer(message, self.strings("invalid_backup"))
+            return
+
         file = await reply.download_media(bytes)
         try:
-            decoded_text = json.loads(file.decode())
-        except Exception:
+            decoded_text = self._decode_database_backup(file)
+        except ValueError:
             logger.exception("Unable to decode database backup")
             await utils.answer(message, self.strings("invalid_backup"))
             return
@@ -391,7 +418,8 @@ class HikkaBackupMod(loader.Module):
             decoded_text["hikka.inline"].pop("bot_token")
 
         if not self._db.process_db_autofix(decoded_text):
-            raise RuntimeError("Attempted to restore broken database")
+            await utils.answer(message, self.strings("invalid_backup"))
+            return
 
         self._db.clear()
         self._db.update(**decoded_text)
@@ -402,34 +430,79 @@ class HikkaBackupMod(loader.Module):
 
     @loader.command()
     async def backupmods(self, message: Message):
-        mods_quantity = len(self.lookup("Loader").get("loaded_modules", {}))
+        loaded_modules = self.lookup("Loader").get("loaded_modules", {})
+        try:
+            payload, local_modules = await asyncio.to_thread(
+                self._build_module_archive,
+                loaded_modules,
+                self.tg_id,
+            )
+        except (OSError, ValueError, zipfile.BadZipFile):
+            logger.exception("Unable to create modules backup")
+            await utils.answer(message, self.strings("invalid_backup"))
+            return
 
-        result = io.BytesIO()
-        result.name = "mods.zip"
-
-        db_mods = json.dumps(self.lookup("Loader").get("loaded_modules", {})).encode()
-
-        with zipfile.ZipFile(result, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(loader.LOADED_MODULES_DIR):
-                for file in files:
-                    if file.endswith(f"{self.tg_id}.py"):
-                        with open(os.path.join(root, file), "rb") as f:
-                            zipf.writestr(file, f.read())
-                            mods_quantity += 1
-
-            zipf.writestr("db_mods.json", db_mods)
-
-        archive = io.BytesIO(result.getvalue())
+        archive = io.BytesIO(payload)
         archive.name = f"mods-{datetime.datetime.now():%d-%m-%Y-%H-%M}.zip"
 
         await utils.answer_file(
             message,
             archive,
             caption=self.strings("modules_backup").format(
-                mods_quantity,
+                len(loaded_modules) + local_modules,
                 utils.escape_html(self.get_prefix()),
             ),
         )
+
+    @classmethod
+    def _build_module_archive(cls, db_mods: dict, tg_id: int) -> tuple[bytes, int]:
+        if not cls._valid_module_map(db_mods):
+            raise ValueError("Invalid modules backup metadata")
+
+        metadata = json.dumps(db_mods).encode()
+        if len(metadata) > MAX_MODULE_BACKUP_FILE_SIZE:
+            raise ValueError("Modules backup metadata is too large")
+
+        result = io.BytesIO()
+        total_size = len(metadata)
+        file_count = 1
+        local_modules = 0
+        seen_names = {"db_mods.json"}
+
+        with zipfile.ZipFile(result, "w", zipfile.ZIP_DEFLATED) as archive:
+            for root, _, files in os.walk(loader.LOADED_MODULES_DIR):
+                for name in files:
+                    if not name.endswith(f"{tg_id}.py"):
+                        continue
+                    if name in seen_names:
+                        raise ValueError(f"Duplicate module backup member: {name}")
+                    if file_count >= MAX_MODULE_BACKUP_FILES:
+                        raise ValueError("Too many files in modules backup")
+
+                    path = os.path.join(root, name)
+                    with open(path, "rb") as module_file:
+                        data = module_file.read(MAX_MODULE_BACKUP_FILE_SIZE + 1)
+
+                    size = len(data)
+                    total_size += size
+                    if (
+                        size > MAX_MODULE_BACKUP_FILE_SIZE
+                        or total_size > MAX_MODULE_BACKUP_TOTAL_SIZE
+                    ):
+                        raise ValueError("Modules backup is too large")
+
+                    archive.writestr(name, data)
+                    seen_names.add(name)
+                    file_count += 1
+                    local_modules += 1
+
+            archive.writestr("db_mods.json", metadata)
+
+        payload = result.getvalue()
+        if len(payload) > MAX_MODULE_BACKUP_TOTAL_SIZE:
+            raise ValueError("Modules backup archive is too large")
+
+        return payload, local_modules
 
     @staticmethod
     def _safe_module_backup_infos(
@@ -441,12 +514,21 @@ class HikkaBackupMod(loader.Module):
 
         total_size = 0
         safe_infos = []
+        seen_names = set()
         for info in infos:
             path = Path(info.filename)
-            if info.is_dir() or path.name == "db_mods.json":
+            if info.filename in seen_names:
+                raise ValueError(f"Duplicate module backup member: {info.filename}")
+            seen_names.add(info.filename)
+
+            if info.is_dir():
                 continue
 
-            if path.name != info.filename or path.suffix != ".py":
+            if (
+                path.name != info.filename
+                or "/" in info.filename
+                or "\\" in info.filename
+            ):
                 raise ValueError(f"Unsafe module backup member: {info.filename}")
 
             total_size += info.file_size
@@ -456,9 +538,52 @@ class HikkaBackupMod(loader.Module):
             ):
                 raise ValueError("Modules backup is too large")
 
+            if path.name == "db_mods.json":
+                continue
+
+            if path.suffix != ".py":
+                raise ValueError(f"Unsafe module backup member: {info.filename}")
+
             safe_infos.append(info)
 
+        if "db_mods.json" not in seen_names:
+            raise ValueError("Modules backup metadata is missing")
+
         return safe_infos
+
+    @staticmethod
+    def _valid_module_map(value: typing.Any) -> bool:
+        return isinstance(value, dict) and all(
+            isinstance(key, str)
+            and isinstance(module_url, str)
+            and utils.check_url(module_url)
+            for key, module_url in value.items()
+        )
+
+    @classmethod
+    def _decode_module_archive(cls, payload: bytes) -> tuple[dict, dict[str, bytes]]:
+        if len(payload) > MAX_MODULE_BACKUP_TOTAL_SIZE:
+            raise ValueError("Modules backup archive is too large")
+
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            module_infos = cls._safe_module_backup_infos(zf)
+            with zf.open("db_mods.json", "r") as modules:
+                db_mods = json.loads(modules.read().decode())
+
+            if not cls._valid_module_map(db_mods):
+                raise ValueError("Invalid modules backup metadata")
+
+            module_files = {
+                Path(info.filename).name: zf.read(info) for info in module_infos
+            }
+
+        return db_mods, module_files
+
+    @staticmethod
+    def _write_module_files(module_files: dict[str, bytes]) -> None:
+        loader.LOADED_MODULES_PATH.mkdir(parents=True, exist_ok=True)
+        for name, data in module_files.items():
+            (loader.LOADED_MODULES_PATH / name).write_bytes(data)
 
     @loader.command()
     async def restoremods(self, message: Message):
@@ -466,42 +591,34 @@ class HikkaBackupMod(loader.Module):
             await utils.answer(message, self.strings("reply_to_file"))
             return
 
+        file_size = getattr(getattr(reply, "file", None), "size", None)
+        if file_size is not None and file_size > MAX_MODULE_BACKUP_TOTAL_SIZE:
+            await utils.answer(message, self.strings("invalid_backup"))
+            return
+
         file = await reply.download_media(bytes)
+        decoded_text = None
         try:
             decoded_text = json.loads(file.decode())
-        except Exception:
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+
+        if decoded_text is None:
             try:
-                file = io.BytesIO(file)
-                file.name = "mods.zip"
-
-                with zipfile.ZipFile(file) as zf:
-                    module_infos = self._safe_module_backup_infos(zf)
-                    with zf.open("db_mods.json", "r") as modules:
-                        db_mods = json.loads(modules.read().decode())
-                        if isinstance(db_mods, dict) and all(
-                            (
-                                isinstance(key, str)
-                                and isinstance(value, str)
-                                and utils.check_url(value)
-                            )
-                            for key, value in db_mods.items()
-                        ):
-                            self.lookup("Loader").set("loaded_modules", db_mods)
-
-                    for info in module_infos:
-                        path = loader.LOADED_MODULES_PATH / Path(info.filename).name
-                        with zf.open(info, "r") as module:
-                            path.write_bytes(module.read())
+                db_mods, module_files = await asyncio.to_thread(
+                    self._decode_module_archive,
+                    file,
+                )
+                await asyncio.to_thread(self._write_module_files, module_files)
             except Exception:
                 logger.exception("Unable to restore modules")
                 await utils.answer(message, self.strings("invalid_backup"))
                 return
+            self.lookup("Loader").set("loaded_modules", db_mods)
         else:
-            if not isinstance(decoded_text, dict) or not all(
-                isinstance(key, str) and isinstance(value, str)
-                for key, value in decoded_text.items()
-            ):
-                raise RuntimeError("Invalid backup")
+            if not self._valid_module_map(decoded_text):
+                await utils.answer(message, self.strings("invalid_backup"))
+                return
 
             self.lookup("Loader").set("loaded_modules", decoded_text)
 

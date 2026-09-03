@@ -9,7 +9,9 @@ import contextlib
 import logging
 import os
 import pathlib
+import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -17,7 +19,7 @@ import typing
 import urllib.parse
 
 import git
-from git import GitCommandError, Repo
+from git import Repo
 from telethon.extensions import html as telethon_html
 from telethon.tl.functions.messages import (
     GetDialogFiltersRequest,
@@ -30,6 +32,13 @@ from .._internal import restart
 from ..inline.types import InlineCall
 
 logger = logging.getLogger(__name__)
+
+LEGACY_EXTERNAL_UPDATE_COMMAND = "git reset --hard origin/{branch} && git pull --quiet"
+URL_CREDENTIAL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
+SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)(token|api[_-]?key|secret|password|passwd|authorization)"
+    r"(\s*[:=]\s*)([^\s&;]+)"
+)
 
 
 @loader.tds
@@ -98,11 +107,16 @@ class UpdaterMod(loader.Module):
         ),
         "external_output": "\n\n<b>Output:</b>\n<code>{}</code>",
         "external_default_command": (
-            "git reset --hard origin/{branch} && git pull --quiet"
+            "git pull --ff-only --quiet origin {branch}"
         ),
         "external_interval_doc": (
             "Seconds between automatic checks of external services. "
             "0 disables automatic checks"
+        ),
+        "external_timeout_doc": "Maximum external update command runtime, in seconds",
+        "update_failed": (
+            "🚫 <b>Update stopped safely:</b> <code>{}</code>\n"
+            "<b>Local files were not reset. Resolve the Git conflict manually and retry.</b>"
         ),
         "_cmd_doc_updatesvcadd": (
             "<name> <path> [script] or <name> <repo_url> <path> [branch] | "
@@ -128,11 +142,36 @@ class UpdaterMod(loader.Module):
                 lambda: self.strings("external_interval_doc"),
                 validator=loader.validators.Integer(minimum=0),
             ),
+            loader.ConfigValue(
+                "EXTERNAL_UPDATE_TIMEOUT",
+                600,
+                lambda: self.strings("external_timeout_doc"),
+                validator=loader.validators.Integer(minimum=10, maximum=3600),
+            ),
         )
 
     def _get_external_services(self) -> typing.List[dict]:
         services = self.get("external_services", [])
-        return services if isinstance(services, list) else []
+        if not isinstance(services, list):
+            return []
+
+        normalized_services = [
+            service for service in services if isinstance(service, dict)
+        ]
+        migrated = len(normalized_services) != len(services)
+        for service in normalized_services:
+
+            branch = service.get("branch") or "main"
+            if service.get("command") == LEGACY_EXTERNAL_UPDATE_COMMAND.format(
+                branch=branch
+            ):
+                service["command"] = self._default_external_command(branch)
+                migrated = True
+
+        if migrated:
+            self._set_external_services(normalized_services)
+
+        return normalized_services
 
     def _set_external_services(self, services: typing.List[dict]):
         self.set("external_services", services)
@@ -149,7 +188,9 @@ class UpdaterMod(loader.Module):
         )
 
     def _default_external_command(self, branch: str) -> str:
-        return self.strings("external_default_command").format(branch=branch)
+        return self.strings("external_default_command").format(
+            branch=shlex.quote(branch)
+        )
 
     def _looks_like_git_url(self, value: str) -> bool:
         if pathlib.Path(value).expanduser().exists():
@@ -201,15 +242,24 @@ class UpdaterMod(loader.Module):
             parsed = urllib.parse.urlparse(repo_url)
             repo_url = f"https://{parsed.hostname}/{parsed.path.lstrip('/')}"
 
-        if repo_url.endswith(".git"):
-            repo_url = repo_url[:-4]
-
         parsed = urllib.parse.urlparse(repo_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             return None
 
+        hostname = parsed.hostname
+        if not hostname:
+            return None
+
+        hostname = f"[{hostname}]" if ":" in hostname else hostname
+        try:
+            netloc = f"{hostname}:{parsed.port}" if parsed.port else hostname
+        except ValueError:
+            return None
+
+        path = parsed.path.removesuffix(".git")
+
         return urllib.parse.urlunparse(
-            (parsed.scheme, parsed.netloc, parsed.path, "", "", "")
+            (parsed.scheme, netloc, path, "", "", "")
         )
 
     def _get_compare_url(
@@ -252,6 +302,23 @@ class UpdaterMod(loader.Module):
 
         return ", ".join(parts)
 
+    @staticmethod
+    def _redact_external_text(value: typing.Any) -> str:
+        text = str(value)
+        text = URL_CREDENTIAL_RE.sub(r"\1<redacted>@", text)
+        return SENSITIVE_VALUE_RE.sub(r"\1\2<redacted>", text)
+
+    @staticmethod
+    def _signal_process_group(process, sig: signal.Signals) -> None:
+        if process.returncode is not None:
+            return
+
+        try:
+            os.killpg(process.pid, sig)
+        except OSError:
+            with contextlib.suppress(OSError, ProcessLookupError):
+                process.send_signal(sig)
+
     async def _get_external_status(self, service: dict, fetch: bool = True) -> dict:
         name = service.get("name", "n/a")
         repo_url = service.get("repo_url")
@@ -278,18 +345,22 @@ class UpdaterMod(loader.Module):
         repo = self._get_service_repo(path)
 
         try:
-            origin = repo.remote("origin")
+            repo.remote("origin")
         except ValueError as e:
             if not repo_url:
                 raise ValueError("origin remote is not configured") from e
 
-            origin = repo.create_remote("origin", repo_url)
+            repo.create_remote("origin", repo_url)
 
         if repo_url:
             await asyncio.to_thread(repo.git.remote, "set-url", "origin", repo_url)
 
         if fetch:
-            await asyncio.to_thread(origin.fetch)
+            await asyncio.to_thread(
+                repo.git.fetch,
+                "origin",
+                kill_after_timeout=int(self.config["EXTERNAL_UPDATE_TIMEOUT"]),
+            )
 
         origin_url = repo_url or self._get_origin_url(repo)
         tracking_branch = self._get_tracking_branch(repo, branch)
@@ -331,7 +402,9 @@ class UpdaterMod(loader.Module):
         if not output:
             return ""
 
-        return self.strings("external_output").format(utils.escape_html(output[-1800:]))
+        return self.strings("external_output").format(
+            utils.escape_html(self._redact_external_text(output)[-1800:])
+        )
 
     @loader.command()
     async def updatesvcadd(self, message: Message):
@@ -437,7 +510,9 @@ class UpdaterMod(loader.Module):
                             if service.get("repo_url")
                             else "<code>auto repo</code>"
                         ),
-                        command=utils.escape_html(service.get("command", "")),
+                        command=utils.escape_html(
+                            self._redact_external_text(service.get("command", ""))
+                        ),
                     )
                     for service in services
                 )
@@ -465,6 +540,7 @@ class UpdaterMod(loader.Module):
                 repo_url,
                 str(path),
                 branch=branch or "main",
+                kill_after_timeout=int(self.config["EXTERNAL_UPDATE_TIMEOUT"]),
             )
             cloned = True
 
@@ -480,25 +556,76 @@ class UpdaterMod(loader.Module):
                 "compare_url": status.get("compare_url"),
             }
 
+        default_command = self._default_external_command(status["branch"])
+        if command == default_command:
+            if status.get("ahead") and not status.get("behind"):
+                return {
+                    "name": name,
+                    "updated": False,
+                    "compare_url": status.get("compare_url"),
+                }
+            if status.get("dirty"):
+                raise ValueError(
+                    "local changes present; refusing the automatic update command"
+                )
+            if not status.get("behind") and local_commit != remote_commit:
+                raise ValueError("unable to determine a safe fast-forward update")
+
         repo = self._get_service_repo(path)
         process = await asyncio.create_subprocess_shell(
             command,
             cwd=str(repo.working_tree_dir or path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
-        stdout, stderr = await process.communicate()
+        communication = asyncio.create_task(process.communicate())
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                asyncio.shield(communication),
+                timeout=int(self.config["EXTERNAL_UPDATE_TIMEOUT"]),
+            )
+        except asyncio.TimeoutError as e:
+            self._signal_process_group(process, signal.SIGTERM)
+            try:
+                await asyncio.wait_for(asyncio.shield(communication), timeout=5)
+            except asyncio.TimeoutError:
+                self._signal_process_group(process, signal.SIGKILL)
+                await asyncio.gather(communication, return_exceptions=True)
+            raise TimeoutError("external update command timed out") from e
+        except asyncio.CancelledError:
+            self._signal_process_group(process, signal.SIGKILL)
+            await asyncio.gather(communication, return_exceptions=True)
+            raise
+
+        stdout_text = stdout.decode(errors="replace")
+        stderr_text = stderr.decode(errors="replace")
+        if process.returncode:
+            output = "\n".join(
+                filter(None, (stdout_text.strip(), stderr_text.strip()))
+            )
+            output = self._redact_external_text(output)
+            detail = f": {output[-1000:]}" if output else ""
+            raise RuntimeError(
+                f"update command exited with code {process.returncode}{detail}"
+            )
+
+        new_commit = repo.head.commit.hexsha
+        if not cloned and new_commit == local_commit and remote_commit != local_commit:
+            raise RuntimeError("update command succeeded but repository HEAD did not move")
 
         return {
             "name": name,
             "updated": True,
             "cloned": cloned,
             "old": local_commit,
-            "new": remote_commit,
+            "new": new_commit,
             "code": process.returncode,
-            "stdout": stdout.decode(errors="replace"),
-            "stderr": stderr.decode(errors="replace"),
-            "compare_url": status.get("compare_url"),
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+            "compare_url": self._get_compare_url(
+                status.get("repo_url"), local_commit, new_commit
+            ),
         }
 
     @loader.command()
@@ -535,7 +662,7 @@ class UpdaterMod(loader.Module):
                 results.append(
                     self.strings("external_failed").format(
                         name=utils.escape_html(service.get("name", "n/a")),
-                        error=utils.escape_html(str(e)),
+                        error=utils.escape_html(self._redact_external_text(e)),
                     )
                 )
                 continue
@@ -547,7 +674,9 @@ class UpdaterMod(loader.Module):
                         path=utils.escape_html(status["path"]),
                         repo=self._format_external_repo_link(status.get("repo_url")),
                         branch=utils.escape_html(status["branch"]),
-                        command=utils.escape_html(status["command"]),
+                        command=utils.escape_html(
+                            self._redact_external_text(status["command"])
+                        ),
                     )
                 )
                 continue
@@ -569,7 +698,9 @@ class UpdaterMod(loader.Module):
                     remote=status["remote"][:12],
                     compare=compare,
                     status=self._format_external_status(status),
-                    command=utils.escape_html(status["command"]),
+                    command=utils.escape_html(
+                        self._redact_external_text(status["command"])
+                    ),
                 )
             )
 
@@ -609,7 +740,7 @@ class UpdaterMod(loader.Module):
                 results.append(
                     self.strings("external_failed").format(
                         name=utils.escape_html(service.get("name", "n/a")),
-                        error=utils.escape_html(str(e)),
+                        error=utils.escape_html(self._redact_external_text(e)),
                     )
                 )
                 continue
@@ -640,27 +771,31 @@ class UpdaterMod(loader.Module):
     async def restart(self, message: Message):
         args = utils.get_args_raw(message)
         secure_boot = any(trigger in args for trigger in {"--secure-boot", "-sb"})
+        if "-f" in args or not self.inline.init_complete:
+            await self.restart_common(message, secure_boot)
+            return
+
         try:
-            if (
-                "-f" in args
-                or not self.inline.init_complete
-                or not await self.inline.form(
-                    message=message,
-                    text=self.strings(
-                        "secure_boot_confirm" if secure_boot else "restart_confirm"
-                    ),
-                    reply_markup=[
-                        {
-                            "text": self.strings("btn_restart"),
-                            "callback": self.inline_restart,
-                            "args": (secure_boot,),
-                        },
-                        {"text": self.strings("cancel"), "action": "close"},
-                    ],
-                )
-            ):
-                raise
+            form_created = await self.inline.form(
+                message=message,
+                text=self.strings(
+                    "secure_boot_confirm" if secure_boot else "restart_confirm"
+                ),
+                reply_markup=[
+                    {
+                        "text": self.strings("btn_restart"),
+                        "callback": self.inline_restart,
+                        "args": (secure_boot,),
+                    },
+                    {"text": self.strings("cancel"), "action": "close"},
+                ],
+            )
         except Exception:
+            logger.exception("Unable to show restart confirmation")
+            await self.restart_common(message, secure_boot)
+            return
+
+        if not form_created:
             await self.restart_common(message, secure_boot)
 
     async def inline_restart(self, call: InlineCall, secure_boot: bool = False):
@@ -713,7 +848,8 @@ class UpdaterMod(loader.Module):
         await self._db.remote_force_save()
 
         if "LAVHOST" in os.environ:
-            os.system("lavhost restart")
+            process = await asyncio.create_subprocess_exec("lavhost", "restart")
+            await process.wait()
             return
 
         with contextlib.suppress(Exception):
@@ -731,11 +867,12 @@ class UpdaterMod(loader.Module):
         await message.client.disconnect()
         restart()
 
-    async def download_common(self):
+    def _download_common_sync(self):
+        timeout = int(self.config["EXTERNAL_UPDATE_TIMEOUT"])
         try:
             repo = Repo(os.path.dirname(utils.get_base_dir()))
             origin = repo.remote("origin")
-            r = origin.pull()
+            r = origin.pull(ff_only=True, kill_after_timeout=timeout)
             new_commit = repo.head.commit
             for info in r:
                 if info.old_commit:
@@ -746,11 +883,14 @@ class UpdaterMod(loader.Module):
         except git.exc.InvalidGitRepositoryError:
             repo = Repo.init(os.path.dirname(utils.get_base_dir()))
             origin = repo.create_remote("origin", self.config["GIT_ORIGIN_URL"])
-            origin.fetch()
+            origin.fetch(kill_after_timeout=timeout)
             repo.create_head("main", origin.refs.main)
             repo.heads.main.set_tracking_branch(origin.refs.main)
-            repo.heads.main.checkout(True)
+            repo.heads.main.checkout()
             return False
+
+    async def download_common(self):
+        return await asyncio.to_thread(self._download_common_sync)
 
     @staticmethod
     def req_common():
@@ -776,35 +916,39 @@ class UpdaterMod(loader.Module):
 
     @loader.command()
     async def update(self, message: Message):
+        args = utils.get_args_raw(message)
+        if "-f" in args or not self.inline.init_complete:
+            await self.inline_update(message)
+            return
+
         try:
-            args = utils.get_args_raw(message)
             current = utils.get_git_hash()
             upcoming = next(
                 git.Repo().iter_commits(f"origin/{version.branch}", max_count=1)
             ).hexsha
-            if (
-                "-f" in args
-                or not self.inline.init_complete
-                or not await self.inline.form(
-                    message=message,
-                    text=(
-                        self.strings("update_confirm").format(
-                            current, current[:8], upcoming, upcoming[:8]
-                        )
-                        if upcoming != current
-                        else self.strings("no_update")
-                    ),
-                    reply_markup=[
-                        {
-                            "text": self.strings("btn_update"),
-                            "callback": self.inline_update,
-                        },
-                        {"text": self.strings("cancel"), "action": "close"},
-                    ],
-                )
-            ):
-                raise
+            form_created = await self.inline.form(
+                message=message,
+                text=(
+                    self.strings("update_confirm").format(
+                        current, current[:8], upcoming, upcoming[:8]
+                    )
+                    if upcoming != current
+                    else self.strings("no_update")
+                ),
+                reply_markup=[
+                    {
+                        "text": self.strings("btn_update"),
+                        "callback": self.inline_update,
+                    },
+                    {"text": self.strings("cancel"), "action": "close"},
+                ],
+            )
         except Exception:
+            logger.exception("Unable to show update confirmation")
+            await self.inline_update(message)
+            return
+
+        if not form_created:
             await self.inline_update(message)
 
     async def inline_update(
@@ -814,7 +958,7 @@ class UpdaterMod(loader.Module):
     ):
         # We don't really care about asyncio at this point, as we are shutting down
         if hard:
-            os.system(f"cd {utils.get_base_dir()} && cd .. && git reset --hard HEAD")
+            logger.warning("Ignoring deprecated destructive hard-update request")
 
         try:
             if "LAVHOST" in os.environ:
@@ -832,7 +976,8 @@ class UpdaterMod(loader.Module):
                     ),
                 )
                 await self.process_restart_message(msg_obj)
-                os.system("lavhost update")
+                process = await asyncio.create_subprocess_exec("lavhost", "update")
+                await process.wait()
                 return
 
             with contextlib.suppress(Exception):
@@ -844,15 +989,18 @@ class UpdaterMod(loader.Module):
                 msg_obj = await utils.answer(msg_obj, self.strings("installing"))
 
             if req_update:
-                self.req_common()
+                await asyncio.to_thread(self.req_common)
 
             await self.restart_common(msg_obj)
-        except GitCommandError:
-            if not hard:
-                await self.inline_update(msg_obj, True)
-                return
-
-            logger.critical("Got update loop. Update manually via .terminal")
+        except Exception as e:
+            logger.exception("Update failed without resetting local files")
+            with contextlib.suppress(Exception):
+                await utils.answer(
+                    msg_obj,
+                    self.strings("update_failed").format(
+                        utils.escape_html(self._redact_external_text(e))[-1500:]
+                    ),
+                )
 
     @loader.loop(interval=60, autostart=True)
     async def external_update_poller(self):
