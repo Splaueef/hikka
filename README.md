@@ -126,7 +126,15 @@ cd hikka
 
 Docker Compose also starts a private Redis service and configures Hikka to use
 it for its database and database backups. Redis data is persisted in the
-`redis` Docker volume and is not exposed outside the Compose network.
+`redis` Docker volume and is not exposed outside the Compose network. If Redis
+is temporarily unavailable, backups automatically fall back to the private
+`hikka-backups` Telegram channel.
+
+The application checkout and dynamically installed Python packages live in the
+`worker` volume. On every container start Hikka pulls a fast-forward update and
+installs its current requirements. This means `.update`, downloaded modules,
+sessions, and module dependencies survive container recreation; neither
+`docker compose up --build` nor an automatic application update resets them.
 
 The script builds the image, starts the container, and waits for the temporary
 HTTPS login link. Open the address shown after `Remote setup`; a valid address

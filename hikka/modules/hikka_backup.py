@@ -63,6 +63,10 @@ class HikkaBackupMod(loader.Module):
         "redis_error": (
             "<emoji document_id=5312383351217201533>🚫</emoji> <b>Redis error:</b> <code>{error}</code>"
         ),
+        "channel_saved": (
+            "<emoji document_id=5206607081334906820>✅</emoji> "
+            "<b>Redis is unavailable; database backup saved to the backup channel</b>"
+        ),
     }
 
     def __init__(self):
@@ -179,6 +183,25 @@ class HikkaBackupMod(loader.Module):
     ) -> typing.List[typing.Dict[str, typing.Union[str, int]]]:
         return await utils.run_sync(self._redis_users_sync)
 
+    async def _ensure_backup_channel(self):
+        if getattr(self, "_backup_channel", None) is None:
+            self._backup_channel, _ = await utils.asset_channel(
+                self._client,
+                "hikka-backups",
+                "📼 Your database backups will appear here",
+                silent=True,
+                archive=True,
+                avatar="https://github.com/Splaueef/assets/raw/main/hikka-backups.png",
+                _folder="hikka",
+            )
+
+        return self._backup_channel
+
+    async def _save_to_channel(self) -> None:
+        backup = io.BytesIO(json.dumps(self._db).encode())
+        backup.name = f"hikka-db-backup-{datetime.datetime.now():%d-%m-%Y-%H-%M}.json"
+        await self._client.send_file(await self._ensure_backup_channel(), backup)
+
     async def client_ready(self):
         if not self.get("period"):
             await self.inline.bot.send_photo(
@@ -208,6 +231,13 @@ class HikkaBackupMod(loader.Module):
                     ]
                 ),
             )
+
+        try:
+            await self._ensure_backup_channel()
+        except Exception:
+            # Redis may work even if Telegram channel creation temporarily does
+            # not. The channel will be retried lazily if a fallback is needed.
+            logger.exception("Unable to prepare database backup channel")
 
     async def _set_backup_period(self, call: BotInlineCall, value: int):
         if not value:
@@ -261,7 +291,13 @@ class HikkaBackupMod(loader.Module):
                 max(0, self.get("last_backup") + self.get("period") - time.time())
             )
 
-            await self._save_to_redis()
+            try:
+                await self._save_to_redis()
+            except Exception:
+                logger.exception(
+                    "Unable to save database to Redis; falling back to Telegram"
+                )
+                await self._save_to_channel()
             self.set("last_backup", round(time.time()))
         except loader.StopLoop:
             raise
@@ -275,10 +311,17 @@ class HikkaBackupMod(loader.Module):
             await self._save_to_redis()
         except Exception as e:
             logger.exception("Unable to save database to Redis")
-            await utils.answer(
-                message,
-                self.strings("redis_error").format(error=utils.escape_html(str(e))),
-            )
+            try:
+                await self._save_to_channel()
+            except Exception:
+                logger.exception("Unable to save database backup to Telegram")
+                await utils.answer(
+                    message,
+                    self.strings("redis_error").format(error=utils.escape_html(str(e))),
+                )
+                return
+
+            await utils.answer(message, self.strings("channel_saved"))
             return
 
         await utils.answer(message, self.strings("redis_saved"))
