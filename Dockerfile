@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
@@ -15,7 +15,7 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install -r requirements.txt
 
 
-FROM python:3.11-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 ENV DOCKER=true \
     HIKKA_REPOSITORY=https://github.com/Splaueef/hikka.git \
