@@ -5,7 +5,10 @@ readonly app_dir="${HIKKA_APP_DIR:-/data/app}"
 readonly seed_dir="/opt/hikka"
 readonly repository="${HIKKA_REPOSITORY:-https://github.com/Splaueef/hikka.git}"
 
-mkdir -p "$app_dir" /data/python
+# pip can need considerably more than the deliberately small /tmp tmpfs while
+# unpacking or building a module dependency.  TMPDIR points at the persistent
+# /data volume, so make sure it also exists for volumes created by older images.
+mkdir -p "$app_dir" /data/python "${TMPDIR:-/data/tmp}"
 
 # Keep the runnable checkout on the persistent volume.  Consequently both code
 # downloaded by .update and dependencies installed by modules survive a

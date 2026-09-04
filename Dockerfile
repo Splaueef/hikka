@@ -24,6 +24,7 @@ ENV DOCKER=true \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_TARGET=/data/python \
+    TMPDIR=/data/tmp \
     PYTHONPATH=/data/python \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -41,7 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /tmp/*
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin hikka \
-    && install -d -o hikka -g hikka /data /data/app /data/python
+    && install -d -o hikka -g hikka /data /data/app /data/python /data/tmp
 
 COPY --from=builder /opt/venv /opt/venv
 
