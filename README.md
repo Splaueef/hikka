@@ -137,7 +137,9 @@ sessions, and module dependencies survive container recreation; neither
 `docker compose up --build` nor an automatic application update resets them.
 Temporary files used to unpack and build module dependencies are also placed on
 this volume instead of the size-limited `/tmp` filesystem, allowing larger
-Python packages to be installed at runtime.
+Python packages to be installed at runtime. The fallback `/tmp` mount remains
+executable because some native build backends ignore `TMPDIR` and run their
+compiler probes there.
 
 The script builds the image, starts the container, and waits for the temporary
 HTTPS login link. Open the address shown after `Remote setup`; a valid address

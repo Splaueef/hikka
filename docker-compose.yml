@@ -26,7 +26,7 @@ services:
             - ALL
         pids_limit: 256
         tmpfs:
-            - /tmp:rw,nosuid,nodev,noexec,size=128m
+            - /tmp:rw,nosuid,nodev,exec,size=512m
         healthcheck:
             test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/"]
             interval: 30s
