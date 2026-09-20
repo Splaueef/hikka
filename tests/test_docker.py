@@ -15,6 +15,16 @@ def test_module_dependency_directories_are_persistent():
     assert 'mkdir -p "$app_dir" /data/python "${TMPDIR:-/data/tmp}"' in entrypoint
 
 
+def test_container_home_is_writable_and_persistent():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    entrypoint = (ROOT / "docker-entrypoint.sh").read_text()
+
+    assert "HOME=/home/hikka" in dockerfile
+    assert "/data/home /data/home/hikka" in dockerfile
+    assert "ln -s /data/home /home" in dockerfile
+    assert "/data/home /data/home/hikka" in entrypoint
+
+
 def test_tmp_allows_native_dependency_builds():
     compose = (ROOT / "docker-compose.yml").read_text()
     tmp_mount = next(

@@ -6,11 +6,13 @@ readonly seed_dir="/opt/hikka"
 readonly repository="${HIKKA_REPOSITORY:-https://github.com/Splaueef/hikka.git}"
 
 # pip can need considerably more than the deliberately small /tmp tmpfs while
-# unpacking or building a module dependency.  TMPDIR points at the persistent
+# unpacking or building a module dependency. TMPDIR points at the persistent
 # /data volume, so make sure it also exists for volumes created by older images.
-mkdir -p "$app_dir" /data/python "${TMPDIR:-/data/tmp}"
+# The writable home directories are also created here to migrate existing
+# worker volumes made before /home was persisted under /data.
+mkdir -p "$app_dir" /data/python "${TMPDIR:-/data/tmp}" /data/home /data/home/hikka
 
-# Keep the runnable checkout on the persistent volume.  Consequently both code
+# Keep the runnable checkout on the persistent volume. Consequently both code
 # downloaded by .update and dependencies installed by modules survive a
 # container recreation.
 if [[ ! -d "$app_dir/.git" ]]; then
