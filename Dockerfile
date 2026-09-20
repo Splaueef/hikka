@@ -20,6 +20,7 @@ FROM python:3.11-slim-bookworm
 ENV DOCKER=true \
     HIKKA_REPOSITORY=https://github.com/Splaueef/hikka.git \
     GIT_PYTHON_REFRESH=quiet \
+    HOME=/home/hikka \
     PATH=/data/python/bin:/opt/venv/bin:$PATH \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -41,8 +42,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         /var/cache/apt/archives/* \
         /tmp/*
 
+# Keep Hikka unprivileged, but give terminal commands a persistent writable
+# /home.  /data is the named volume, so files made under /home survive image
+# rebuilds and container recreation without granting root or sudo access.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin hikka \
-    && install -d -o hikka -g hikka /data /data/app /data/python /data/tmp
+    && install -d -o hikka -g hikka \
+        /data /data/app /data/python /data/tmp /data/home /data/home/hikka \
+    && rm -rf /home \
+    && ln -s /data/home /home
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -58,7 +65,3 @@ EXPOSE 8080
 
 ENTRYPOINT ["hikka-entrypoint"]
 CMD ["python", "-m", "hikka", "--proxy-pass", "--no-tty"]
-
-
-
-
