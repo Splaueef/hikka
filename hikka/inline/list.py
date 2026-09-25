@@ -27,7 +27,6 @@ from telethon.tl.types import Message
 
 from .. import main, utils
 from ..types import HikkaReplyMarkup
-from .rich import RichMessageError, call_rich_api
 from .types import InlineMessage, InlineUnit
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,6 @@ class List(InlineUnit):
         on_unload: typing.Optional[typing.Callable[[], typing.Any]] = None,
         silent: bool = False,
         custom_buttons: typing.Optional[HikkaReplyMarkup] = None,
-        rich: typing.Optional[bool] = None,
     ) -> typing.Union[bool, InlineMessage]:
         """
         Send inline list to chat
@@ -72,12 +70,6 @@ class List(InlineUnit):
             _hikka_client_id_logging_tag = copy.copy(self._client.tg_id)  # noqa: F841
 
         custom_buttons = self._validate_markup(custom_buttons)
-        if rich is None:
-            caller = utils.find_caller()
-            rich = bool(
-                caller
-                and getattr(caller, "__module__", "").startswith("hikka.modules.")
-            )
 
         if not isinstance(manual_security, bool):
             logger.error(
@@ -158,8 +150,6 @@ class List(InlineUnit):
             "uid": unit_id,
             "current_index": 0,
             "strings": strings,
-            "rich": rich,
-            "rich_active": False,
             "future": asyncio.Event(),
             **({"ttl": round(time.time()) + ttl} if ttl else {}),
             **({"force_me": force_me} if force_me else {}),
@@ -222,9 +212,7 @@ class List(InlineUnit):
         try:
             m = await self._invoke_unit(unit_id, message)
         except ChatSendInlineForbiddenError:
-            del self._units[unit_id]
             await answer(self.translator.getkey("inline.inline403"))
-            return False
         except Exception:
             logger.exception("Can't send list")
 
@@ -273,46 +261,16 @@ class List(InlineUnit):
 
         self._units[unit_id]["current_index"] = page
 
-        unit = self._units[unit_id]
-        text = self.sanitise_text(unit["strings"][unit["current_index"]])
-        markup = self._list_markup(unit_id)
         try:
-            if unit.get("rich_active"):
-                try:
-                    await call_rich_api(
-                        self._token,
-                        "editMessageText",
-                        {
-                            "inline_message_id": call.inline_message_id,
-                            "rich_message": {"html": text},
-                            "reply_markup": markup.model_dump(
-                                mode="json", exclude_none=True
-                            ),
-                        },
-                    )
-                except RichMessageError as error:
-                    if "message is not modified" not in str(error).lower():
-                        unit["rich_active"] = False
-                        logger.debug("Rich list edit unavailable: %s", error)
-                        await self.bot.edit_message_text(
-                            inline_message_id=call.inline_message_id,
-                            text=text,
-                            reply_markup=markup,
-                        )
-                except Exception:
-                    unit["rich_active"] = False
-                    logger.debug("Rich list edit unavailable", exc_info=True)
-                    await self.bot.edit_message_text(
-                        inline_message_id=call.inline_message_id,
-                        text=text,
-                        reply_markup=markup,
-                    )
-            else:
-                await self.bot.edit_message_text(
-                    inline_message_id=call.inline_message_id,
-                    text=text,
-                    reply_markup=markup,
-                )
+            await self.bot.edit_message_text(
+                inline_message_id=call.inline_message_id,
+                text=self.sanitise_text(
+                    self._units[unit_id]["strings"][
+                        self._units[unit_id]["current_index"]
+                    ]
+                ),
+                reply_markup=self._list_markup(unit_id),
+            )
             await call.answer()
         except TelegramRetryAfter as e:
             await call.answer(
@@ -345,42 +303,6 @@ class List(InlineUnit):
                 and unit["type"] == "list"
             ):
                 try:
-                    if unit.get("rich"):
-                        try:
-                            markup = self._list_markup(inline_query.query)
-                            await call_rich_api(
-                                self._token,
-                                "answerInlineQuery",
-                                {
-                                    "inline_query_id": inline_query.id,
-                                    "results": [
-                                        {
-                                            "type": "article",
-                                            "id": utils.rand(20),
-                                            "title": "Hikka",
-                                            "input_message_content": {
-                                                "rich_message": {
-                                                    "html": self.sanitise_text(
-                                                        unit["strings"][0]
-                                                    )
-                                                }
-                                            },
-                                            "reply_markup": markup.model_dump(
-                                                mode="json", exclude_none=True
-                                            ),
-                                        }
-                                    ],
-                                    "cache_time": 0,
-                                },
-                            )
-                            unit["rich_active"] = True
-                            return
-                        except Exception:
-                            logger.debug(
-                                "Rich inline list unavailable; using HTML",
-                                exc_info=True,
-                            )
-
                     await inline_query.answer(
                         [
                             InlineQueryResultArticle(

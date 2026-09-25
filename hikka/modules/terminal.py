@@ -244,69 +244,7 @@ class MessageEditor:
             self.cwd = cwd
         self.state = 4
         await self.redraw()
-        rich = await self._send_rich_final()
-        if not rich or len(self.stdout) > 18000 or len(self.stderr) > 6000:
-            await self.send_full_output()
-
-    def _rich_final_html(self) -> str:
-        command = utils.escape_html(self._redact(self.command)[:1024])
-        cwd = (
-            f"<p>📁 <b>Directory:</b> <code>{utils.escape_html(self.cwd)}</code></p>"
-            if self.cwd
-            else ""
-        )
-        parts = [
-            "<h3>⌨️ Terminal</h3>",
-            f"<p><b>Command:</b> <code>{command}</code></p>",
-            cwd,
-            f"<p><b>Exit code:</b> <code>{self.rc}</code></p>",
-        ]
-        for title, output, limit in (
-            ("Stdout", self.stdout, 18000),
-            ("Stderr", self.stderr, 6000),
-        ):
-            output = self._redact(output)
-            if not output:
-                continue
-            shortened = len(output) > limit
-            parts.append(f"<h4>{title}</h4>")
-            parts.append(
-                f"<pre>{utils.escape_html(output[-limit:])}</pre>"
-            )
-            if shortened:
-                parts.append("<footer>Only the end of the output is shown here.</footer>")
-
-        return "".join(parts)
-
-    async def _send_rich_final(self) -> bool:
-        inline = getattr(self.request_message.client.loader, "inline", None)
-        if not inline or not inline.init_complete:
-            return False
-
-        output = self._redact(self.stderr if self.rc else self.stdout)
-        preview = utils.escape_html(output[-1800:]) or " "
-        fallback = (
-            f"<b>⌨️ Terminal:</b> <code>{utils.escape_html(self._redact(self.command)[:256])}</code>"
-            f"\n<b>Exit code:</b> <code>{self.rc}</code>"
-            f"\n<blockquote>{preview}</blockquote>"
-        )
-        try:
-            result = await inline.form(
-                text=fallback,
-                rich_text=self._rich_final_html(),
-                rich=True,
-                message=self.message,
-                silent=True,
-                preserve_on_error=True,
-            )
-        except Exception:
-            logger.debug("Could not send rich terminal output", exc_info=True)
-            return False
-
-        return bool(
-            result
-            and inline._units.get(result.unit_id, {}).get("rich_active")
-        )
+        await self.send_full_output()
 
     def _full_output(self) -> typing.Tuple[str, str]:
         if self.rc not in (None, 0) and self.stderr:
