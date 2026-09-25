@@ -32,6 +32,7 @@ from telethon.utils import resolve_inline_message_id
 
 from .. import utils
 from ..types import HikkaReplyMarkup
+from .rich import RichMessageError, call_rich_api
 from .types import InlineCall, InlineUnit
 
 logger = logging.getLogger(__name__)
@@ -461,6 +462,37 @@ class Utils(InlineUnit):
             return False
 
         if media is None:
+            if text is not None and unit.get("rich_active"):
+                rich_html = (
+                    unit.get("rich_text", text)
+                    if text == unit.get("text")
+                    else text
+                )
+                payload = {"rich_message": {"html": rich_html}}
+                if inline_message_id:
+                    payload["inline_message_id"] = inline_message_id
+                else:
+                    payload.update(chat_id=chat_id, message_id=message_id)
+                markup = self.generate_markup(reply_markup)
+                if markup is not None:
+                    payload["reply_markup"] = markup.model_dump(
+                        mode="json", exclude_none=True
+                    )
+                try:
+                    await call_rich_api(self._token, "editMessageText", payload)
+                except RichMessageError as error:
+                    if "message is not modified" in str(error).lower():
+                        return False
+                    logger.debug("Rich message edit unavailable: %s", error)
+                    unit["rich_active"] = False
+                except Exception:
+                    logger.debug("Rich message edit unavailable", exc_info=True)
+                    unit["rich_active"] = False
+                else:
+                    unit["text"] = text
+                    unit["rich_text"] = rich_html
+                    return True
+
             try:
                 await self.bot.edit_message_text(
                     text=text,
