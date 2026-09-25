@@ -33,6 +33,7 @@ from telethon.tl.types import Message
 
 from .. import main, utils
 from ..types import HikkaReplyMarkup
+from .rich import call_rich_api
 from .types import InlineMessage, InlineUnit
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,9 @@ class Form(InlineUnit):
         location: typing.Optional[str] = None,
         audio: typing.Optional[typing.Union[dict, str]] = None,
         silent: bool = False,
+        rich: typing.Optional[bool] = None,
+        rich_text: typing.Optional[str] = None,
+        preserve_on_error: bool = False,
     ) -> typing.Union[InlineMessage, bool]:
         """
         Send inline form to chat
@@ -106,6 +110,9 @@ class Form(InlineUnit):
                          ⚠️ If you pass this parameter, you'll need to pass empty string to `text` ⚠️
         :param audio: Attach a audio to the form. Dict or URL must be supplied
         :param silent: Whether the form must be sent silently (w/o "Opening form..." message)
+        :param rich: Use Telegram Rich Message for a text-only form. Native modules use it by default.
+        :param rich_text: Optional Rich HTML content; `text` remains the compatible fallback.
+        :param preserve_on_error: Keep the original message when inline delivery fails.
         :return: If form is sent, returns :obj:`InlineMessage`, otherwise returns `False`
         """
         with contextlib.suppress(AttributeError):
@@ -124,7 +131,19 @@ class Form(InlineUnit):
             )
             return False
 
+        if rich_text is not None and not isinstance(rich_text, str):
+            logger.error("Invalid type for `rich_text`. Expected `str`")
+            return False
+
+        if rich is None:
+            caller = utils.find_caller()
+            rich = bool(
+                caller
+                and getattr(caller, "__module__", "").startswith("hikka.modules.")
+            )
+
         text = self.sanitise_text(text)
+        rich_text = self.sanitise_text(rich_text) if rich_text is not None else text
 
         if not isinstance(silent, bool):
             logger.error(
@@ -314,6 +333,9 @@ class Form(InlineUnit):
         self._units[unit_id] = {
             "type": "form",
             "text": text,
+            "rich_text": rich_text,
+            "rich": rich,
+            "rich_active": False,
             "buttons": reply_markup,
             "caller": message,
             "chat": None,
@@ -349,21 +371,24 @@ class Form(InlineUnit):
         try:
             m = await self._invoke_unit(unit_id, message)
         except ChatSendInlineForbiddenError:
-            await answer(self.translator.getkey("inline.inline403"))
+            del self._units[unit_id]
+            if not preserve_on_error:
+                await answer(self.translator.getkey("inline.inline403"))
+            return False
         except Exception:
             logger.exception("Can't send form")
-
             del self._units[unit_id]
-            await answer(
-                self.translator.getkey("inline.invoke_failed_logs").format(
-                    utils.escape_html(
-                        "\n".join(traceback.format_exc().splitlines()[1:])
+            if not preserve_on_error:
+                detail = (
+                    self.translator.getkey("inline.invoke_failed_logs").format(
+                        utils.escape_html(
+                            "\n".join(traceback.format_exc().splitlines()[1:])
+                        )
                     )
+                    if self._db.get(main.__name__, "inlinelogs", True)
+                    else self.translator.getkey("inline.invoke_failed")
                 )
-                if self._db.get(main.__name__, "inlinelogs", True)
-                else self.translator.getkey("inline.invoke_failed")
-            )
-
+                await answer(detail)
             return False
 
         await self._units[unit_id]["future"].wait()
@@ -551,6 +576,38 @@ class Form(InlineUnit):
                     cache_time=0,
                 )
             else:
+                if form["rich"]:
+                    try:
+                        result = {
+                            "type": "article",
+                            "id": utils.rand(20),
+                            "title": "Hikka",
+                            "input_message_content": {
+                                "rich_message": {"html": form["rich_text"]}
+                            },
+                        }
+                        markup = self.generate_markup(inline_query.query)
+                        if markup is not None:
+                            result["reply_markup"] = markup.model_dump(
+                                mode="json", exclude_none=True
+                            )
+                        await call_rich_api(
+                            self._token,
+                            "answerInlineQuery",
+                            {
+                                "inline_query_id": inline_query.id,
+                                "results": [result],
+                                "cache_time": 0,
+                            },
+                        )
+                        form["rich_active"] = True
+                        return
+                    except Exception:
+                        logger.debug(
+                            "Rich inline result unavailable; using HTML",
+                            exc_info=True,
+                        )
+
                 await inline_query.answer(
                     [
                         InlineQueryResultArticle(
