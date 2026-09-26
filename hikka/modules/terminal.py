@@ -32,6 +32,7 @@ import pty
 import re
 import shlex
 import shutil
+import signal
 import tempfile
 import time
 import typing
@@ -53,6 +54,7 @@ SENSITIVE_VALUE_RE = re.compile(
 )
 BEARER_TOKEN_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}")
 TELEGRAM_BOT_TOKEN_RE = re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
+SCRIPT_VARIABLE_RE = re.compile(r"(?<!\\)\$(script|event|file|path|watched)\b")
 
 
 def redact_sensitive_text(text: str) -> str:
@@ -525,6 +527,8 @@ class TerminalMod(loader.Module):
             "How many terminal commands to keep in history. 0 disables history"
         ),
         "scripts_poll_cfg": "How often terminal scripts poll watched files, in seconds",
+        "scripts_timeout_cfg": "Maximum runtime of each script shell stage in seconds",
+        "scripts_output_bytes_cfg": "Maximum output kept from each script shell stage in bytes",
         "scripts_output_limit_cfg": (
             "Legacy option kept for compatibility; script output is split into messages"
         ),
@@ -683,8 +687,19 @@ class TerminalMod(loader.Module):
             "<emoji document_id=5472111548572900003>🤖</emoji> <b>Terminal scripts</b>\n"
             "<code>.ts add &lt;name&gt; = watch dir:/path on:change -> cat $file |> notify telegram -100123</code>\n"
             '<code>.ts add &lt;name&gt; = on time:every 5min -> run "date" |> notify me</code>\n'
-            "<code>.ts list|show|test|start|stop|pause|del &lt;name|all&gt;</code>"
+            "<code>.ts check &lt;trigger -&gt; actions&gt;</code>\n"
+            "<code>.ts list|show|status|test|start|stop|pause|del &lt;name&gt;</code>\n"
+            "<code>.ts test &lt;name&gt; [file]</code> · <code>.ts start|stop all</code>"
         ),
+        "script_valid": "✅ <b>Script syntax is valid:</b> <code>{}</code>",
+        "script_status": (
+            "🤖 <b>Script</b> <code>{}</code> · <b>{}</b>\n"
+            "<b>Last run:</b> {}\n<b>Result:</b> {}"
+        ),
+        "script_never": "never",
+        "script_ok": "OK",
+        "script_test_failed": "🚫 <b>Test failed:</b> <code>{}</code>",
+        "script_test_path": "🚫 <b>Provide a file path for this directory watcher:</b> <code>.ts test name /path/file</code>",
         "script_saved": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
             "<code>{}</code> <b>saved and started</b>"
@@ -706,7 +721,7 @@ class TerminalMod(loader.Module):
         ),
         "script_tested": (
             "<emoji document_id=5314250708508220914>✅</emoji> <b>Script</b> "
-            "<code>{}</code> <b>test run started</b>"
+            "<code>{}</code> <b>test run completed</b>"
         ),
         "script_not_found": (
             "<emoji document_id=5210952531676504517>🚫</emoji> <b>Script not found:</b> "
@@ -748,7 +763,7 @@ class TerminalMod(loader.Module):
             "Unknown dot-commands will be executed as shell commands"
         ),
         "_cmd_doc_termscript": (
-            "add|list|show|test|start|stop|pause|del - Manage saved background terminal scripts (alias: .ts)"
+            "add|check|list|show|status|test|start|stop|pause|del - Manage background terminal scripts (alias: .ts)"
         ),
         "_cmd_doc_terminate": (
             "[-f to force kill] - Use in reply to send SIGTERM to a process"
@@ -789,6 +804,18 @@ class TerminalMod(loader.Module):
                 validator=loader.validators.Integer(minimum=1),
             ),
             loader.ConfigValue(
+                "SCRIPTS_COMMAND_TIMEOUT",
+                60,
+                lambda: self.strings("scripts_timeout_cfg"),
+                validator=loader.validators.Integer(minimum=1),
+            ),
+            loader.ConfigValue(
+                "SCRIPTS_OUTPUT_BYTES",
+                32768,
+                lambda: self.strings("scripts_output_bytes_cfg"),
+                validator=loader.validators.Integer(minimum=1024),
+            ),
+            loader.ConfigValue(
                 "SCRIPTS_OUTPUT_LIMIT",
                 3500,
                 lambda: self.strings("scripts_output_limit_cfg"),
@@ -824,6 +851,7 @@ class TerminalMod(loader.Module):
         self._script_tasks = {}
         self._script_snapshots = {}
         self._script_read_offsets = {}
+        self._script_status = {}
 
     def _default_cwd(self) -> str:
         return os.path.abspath(utils.get_base_dir())
@@ -1264,12 +1292,14 @@ class TerminalMod(loader.Module):
             task.cancel()
         self._script_tasks.clear()
         self._script_snapshots.clear()
+        self._script_read_offsets.clear()
 
     def _stop_script(self, name: str):
         task = self._script_tasks.pop(name, None)
         if task:
             task.cancel()
         self._script_snapshots.pop(name, None)
+        self._script_read_offsets.pop(name, None)
 
     def _start_script(self, name: str, script: dict):
         self._stop_script(name)
@@ -1279,11 +1309,61 @@ class TerminalMod(loader.Module):
 
     @staticmethod
     def _split_pipeline(pipeline: str) -> typing.List[str]:
-        return [
-            part.strip()
-            for part in re.split(r"\s*(?:\|>|\+)\s*", pipeline)
-            if part.strip()
-        ]
+        # Keep separators inside quoted shell commands intact.
+        stages, start, quote, escaped = [], 0, None, False
+        for index, char in enumerate(pipeline):
+            if escaped:
+                escaped = False
+            elif char == "\\" and quote != "'":
+                escaped = True
+            elif char == quote:
+                quote = None
+            elif char in ("'", '"') and quote is None:
+                quote = char
+            elif quote is None and (
+                pipeline.startswith("|>", index)
+                or (
+                    char == "+"
+                    and index > 0
+                    and index + 1 < len(pipeline)
+                    and pipeline[index - 1].isspace()
+                    and pipeline[index + 1].isspace()
+                )
+            ):
+                part = pipeline[start:index].strip()
+                if not part:
+                    raise ValueError("empty pipeline stage")
+                stages.append(part)
+                start = index + (2 if pipeline.startswith("|>", index) else 1)
+        if quote:
+            raise ValueError("unclosed quote in pipeline")
+        last = pipeline[start:].strip()
+        if not last:
+            raise ValueError("empty pipeline stage")
+        return stages + [last]
+
+    @classmethod
+    def _validate_script_pipeline(cls, pipeline: str):
+        for stage in cls._split_pipeline(pipeline):
+            if stage.lower().startswith("notify"):
+                try:
+                    args = shlex.split(stage)
+                except ValueError as exc:
+                    raise ValueError(f"invalid notify arguments: {exc}") from exc
+                if not args or args[0] != "notify":
+                    raise ValueError("notify syntax: notify me|telegram <chat>")
+                if len(args) < (3 if len(args) > 1 and args[1] in {"telegram", "tg"} else 2):
+                    raise ValueError("notify syntax: notify me|telegram <chat>")
+                if any(not arg.startswith("msg:") for arg in args[3 if args[1] in {"telegram", "tg"} else 2:]):
+                    raise ValueError("notify only accepts an optional msg:\"text\" argument")
+            else:
+                command = stage[4:].strip() if stage.startswith("run ") else stage
+                if not command:
+                    raise ValueError("empty shell command")
+                try:
+                    shlex.split(command)
+                except ValueError as exc:
+                    raise ValueError(f"invalid shell command: {exc}") from exc
 
     @staticmethod
     def _parse_script_interval(value: str) -> int:
@@ -1311,6 +1391,7 @@ class TerminalMod(loader.Module):
         head, pipeline = map(str.strip, source.split("->", 1))
         if not head or not pipeline:
             raise ValueError("empty trigger or action")
+        self._validate_script_pipeline(pipeline)
 
         lowered = head.lower()
         if lowered.startswith("watch "):
@@ -1354,6 +1435,8 @@ class TerminalMod(loader.Module):
             raise ValueError("watch syntax: watch file:/path on:change -> ...")
 
         kind, path, event = match.groups()
+        if not path.strip().strip("\"'"):
+            raise ValueError("watch path is empty")
         event = event.lower()
         if event not in {"change", "new-file", "delete", "any"}:
             raise ValueError("watch events: change, new-file, delete, any")
@@ -1433,14 +1516,19 @@ class TerminalMod(loader.Module):
             previous_offset = 0
 
         try:
+            limit = self.config["SCRIPTS_OUTPUT_BYTES"]
+            truncated = stat.st_size - previous_offset > limit
             with open(path, "rb") as file:
-                file.seek(previous_offset)
-                data = file.read()
+                file.seek(max(previous_offset, stat.st_size - limit))
+                data = file.read(limit)
         except OSError:
             return ""
 
         offsets[path] = stat.st_size
-        return clean_terminal_output(data.decode(errors="replace"))
+        return (
+            ("[Earlier file changes truncated]\n" if truncated else "")
+            + clean_terminal_output(data.decode(errors="replace"))
+        )
 
     def _script_delta_reader_command(
         self, stage: str, variables: dict
@@ -1460,6 +1548,8 @@ class TerminalMod(loader.Module):
             "tail",
             "head",
         }:
+            return None
+        if any(arg in {"<", ">", "|", ";", "&&", "||"} for arg in args[1:]):
             return None
 
         file_path = variables.get("file")
@@ -1503,10 +1593,14 @@ class TerminalMod(loader.Module):
     def _script_format_vars(
         self, text: str, variables: dict, quote: bool = False
     ) -> str:
-        for key, value in variables.items():
-            value = str(value)
-            text = text.replace(f"${key}", shlex.quote(value) if quote else value)
-        return text
+        return SCRIPT_VARIABLE_RE.sub(
+            lambda match: (
+                shlex.quote(str(variables.get(match.group(1), "")))
+                if quote
+                else str(variables.get(match.group(1), ""))
+            ),
+            text,
+        )
 
     async def _script_shell(
         self, command: str, variables: dict, stdin: str = ""
@@ -1520,17 +1614,63 @@ class TerminalMod(loader.Module):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=self._get_cwd(),
+            start_new_session=True,
         )
-        stdout, stderr = await process.communicate(stdin.encode())
-        output = stdout.decode(errors="replace")
-        errors = stderr.decode(errors="replace")
-        if process.returncode and errors:
-            output += ("\n" if output else "") + errors
-        return clean_terminal_output(output)
+        limit = self.config["SCRIPTS_OUTPUT_BYTES"]
+
+        async def read_limited(stream):
+            chunks, kept = [], 0
+            while data := await stream.read(65536):
+                if kept < limit:
+                    chunk = data[: limit - kept]
+                    chunks.append(chunk)
+                    kept += len(chunk)
+            return b"".join(chunks)
+
+        async def exchange():
+            readers = (
+                asyncio.create_task(read_limited(process.stdout)),
+                asyncio.create_task(read_limited(process.stderr)),
+            )
+            try:
+                try:
+                    process.stdin.write(stdin.encode()[:limit])
+                    await process.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    process.stdin.close()
+                await process.wait()
+                return await asyncio.gather(*readers)
+            finally:
+                for reader in readers:
+                    if not reader.done():
+                        reader.cancel()
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                exchange(), timeout=self.config["SCRIPTS_COMMAND_TIMEOUT"]
+            )
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            # Shells may spawn children that keep pipes open after their parent exits.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            await process.wait()
+            raise
+
+        output = clean_terminal_output(stdout.decode(errors="replace"))
+        errors = clean_terminal_output(stderr.decode(errors="replace"))
+        if process.returncode:
+            raise RuntimeError(
+                f"shell exited {process.returncode}: {errors[:300] or output[:300]}"
+            )
+        return output
 
     async def _script_notify(self, stage: str, variables: dict, payload: str):
-        stage = self._script_format_vars(stage, variables)
-        args = shlex.split(stage)
+        args = [
+            self._script_format_vars(arg, variables)
+            for arg in shlex.split(stage)
+        ]
         if len(args) < 2:
             raise ValueError('notify syntax: notify telegram <chat> [msg:"text"]')
 
@@ -1544,7 +1684,7 @@ class TerminalMod(loader.Module):
             chat = int(chat)
 
         message = payload.strip()
-        for arg in args[2:]:
+        for arg in args[3 if args[1].lower() in {"telegram", "tg"} else 2:]:
             if arg.startswith("msg:"):
                 message = arg.split(":", 1)[1]
                 break
@@ -1593,7 +1733,11 @@ class TerminalMod(loader.Module):
             else:
                 command = stage
 
-            delta_reader = self._script_delta_reader_command(command, variables)
+            delta_reader = (
+                self._script_delta_reader_command(command, variables)
+                if variables.get("event") != "test"
+                else None
+            )
             if delta_reader:
                 delta_path, delta_command = delta_reader
                 delta_payload = await self._script_read_file_delta(name, delta_path)
@@ -1602,6 +1746,20 @@ class TerminalMod(loader.Module):
 
             if command:
                 payload = await self._script_shell(command, variables, payload)
+
+    async def _execute_script(self, name: str, script: dict, variables: dict) -> bool:
+        status = self._script_status.setdefault(name, {})
+        status["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        try:
+            await self._run_script_pipeline(name, script, variables)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            status["error"] = redact_sensitive_text(str(exc))[:300]
+            logger.exception("Terminal script %s failed for %s", name, variables.get("event"))
+            return False
+        status["error"] = ""
+        return True
 
     async def _script_loop(self, name: str, script: dict):
         try:
@@ -1614,7 +1772,7 @@ class TerminalMod(loader.Module):
                     new = self._script_snapshot(script)
                     self._script_snapshots[name] = new
                     for event, path in self._watch_changes(old, new, script["event"]):
-                        await self._run_script_pipeline(
+                        await self._execute_script(
                             name,
                             script,
                             {
@@ -1629,7 +1787,7 @@ class TerminalMod(loader.Module):
             elif script["type"] == "time":
                 while True:
                     await asyncio.sleep(int(script["interval"]))
-                    await self._run_script_pipeline(
+                    await self._execute_script(
                         name,
                         script,
                         {"script": name, "event": "time", "file": "", "path": ""},
@@ -1645,7 +1803,7 @@ class TerminalMod(loader.Module):
 
     @loader.command(alias="ts")
     async def termscriptcmd(self, message):
-        """add|list|show|test|start|stop|pause|del - Manage saved background terminal scripts (alias: .ts)"""
+        """add|check|list|show|status|test|start|stop|pause|del - Manage background terminal scripts (alias: .ts)"""
         args = utils.get_args_raw(message).strip()
         if not args:
             await utils.answer(message, self.strings("script_usage"))
@@ -1654,6 +1812,23 @@ class TerminalMod(loader.Module):
         action, _, rest = args.partition(" ")
         action = action.lower()
         scripts = self._get_scripts()
+
+        if action == "check":
+            try:
+                parsed = self._parse_terminal_script(rest)
+            except ValueError as exc:
+                await utils.answer(
+                    message,
+                    self.strings("script_invalid").format(utils.escape_html(str(exc))),
+                )
+            else:
+                await utils.answer(
+                    message,
+                    self.strings("script_valid").format(
+                        utils.escape_html(parsed["type"])
+                    ),
+                )
+            return
 
         if action == "list":
             if not scripts:
@@ -1681,6 +1856,14 @@ class TerminalMod(loader.Module):
             if not name or not source:
                 await utils.answer(message, self.strings("script_usage"))
                 return
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+                await utils.answer(
+                    message,
+                    self.strings("script_invalid").format(
+                        "name must be 1–64 letters, digits, _ or -"
+                    ),
+                )
+                return
             try:
                 script = self._parse_terminal_script(source)
             except ValueError as e:
@@ -1700,8 +1883,24 @@ class TerminalMod(loader.Module):
             return
 
         name = rest.strip()
+        test_path = None
+        if action == "test":
+            try:
+                test_args = shlex.split(rest)
+            except ValueError as exc:
+                await utils.answer(
+                    message,
+                    self.strings("script_invalid").format(utils.escape_html(str(exc))),
+                )
+                return
+            if len(test_args) > 2:
+                await utils.answer(message, self.strings("script_usage"))
+                return
+            name = test_args[0] if test_args else ""
+            test_path = test_args[1] if len(test_args) == 2 else None
         managed_actions = {
             "show",
+            "status",
             "test",
             "start",
             "stop",
@@ -1747,17 +1946,68 @@ class TerminalMod(loader.Module):
             )
             return
 
+        if action == "status":
+            status = self._script_status.get(name, {})
+            await utils.answer(
+                message,
+                self.strings("script_status").format(
+                    utils.escape_html(name),
+                    "enabled" if scripts[name].get("enabled", True) else "disabled",
+                    utils.escape_html(
+                        status.get("last_run", self.strings("script_never"))
+                    ),
+                    utils.escape_html(
+                        status.get("error") or self.strings("script_ok")
+                        if status.get("last_run")
+                        else self.strings("script_never")
+                    ),
+                ),
+            )
+            return
+
         if action == "test":
-            asyncio.ensure_future(
-                self._run_script_pipeline(
-                    name,
-                    scripts[name],
-                    {"script": name, "event": "test", "file": "", "path": ""},
+            script = scripts[name]
+            path = (
+                self._resolve_path(test_path)
+                if test_path
+                else script["path"]
+                if script["type"] == "watch" and script["kind"] == "file"
+                else ""
+            )
+            if (
+                script["type"] == "watch"
+                and script["kind"] == "dir"
+                and not path
+                and SCRIPT_VARIABLE_RE.search(script["pipeline"])
+                and any(
+                    key in {"file", "path"}
+                    for key in SCRIPT_VARIABLE_RE.findall(script["pipeline"])
                 )
+            ):
+                await utils.answer(message, self.strings("script_test_path"))
+                return
+            ok = await self._execute_script(
+                name,
+                script,
+                {
+                    "script": name,
+                    "event": "test",
+                    "file": path,
+                    "path": path,
+                    "watched": script.get("path", ""),
+                },
             )
             await utils.answer(
                 message,
-                self.strings("script_tested").format(utils.escape_html(name)),
+                (
+                    self.strings("script_tested").format(utils.escape_html(name))
+                    if ok
+                    else self.strings("script_test_failed").format(
+                        utils.escape_html(
+                            self._script_status[name].get("error", "unknown error")
+                        )
+                    )
+                ),
             )
             return
 
@@ -1785,6 +2035,7 @@ class TerminalMod(loader.Module):
             scripts.pop(name)
             self._save_scripts(scripts)
             self._stop_script(name)
+            self._script_status.pop(name, None)
             await utils.answer(
                 message,
                 self.strings("script_deleted").format(utils.escape_html(name)),
