@@ -91,6 +91,8 @@ You are responsible for all actions taken by your account.
 
 ## Installation
 
+Документація українською: [фонові скрипти модуля Terminal](docs/terminal-scripts.uk.md).
+
 ### Installation page
 
 <img src="https://github.com/Splaueef/assets/raw/main/install_qr.gif" height="256">
