@@ -10,7 +10,7 @@ requests==2.34.2
 aiogram==3.31.0
 grapheme==0.6.0
 emoji==2.15.0
-werkzeug==3.1.8
+werkzeug==3.1.9
 psutil==7.2.2
 tgcrypto-pyrofork==1.2.8
 rsa==4.9.1
