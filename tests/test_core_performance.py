@@ -12,7 +12,7 @@ with mock.patch("sys.argv", ["hikka-tests"]):
     import hikka.main  # noqa: F401 - mirror the application's bootstrap order
 from telethon.tl.types import Message, PeerChat, PeerUser
 
-from hikka import database, dispatcher, loader
+from hikka import database, dispatcher, loader, log
 
 
 class _Client:
@@ -161,6 +161,22 @@ class DispatcherTest(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(await self.dispatcher._handle_command(_event("hello")))
 
         censor.assert_not_called()
+
+
+class LogCallerTest(unittest.TestCase):
+    def test_caller_is_found_without_inspecting_stack(self):
+        def log_from_client():
+            _hikka_client_id_logging_tag = 42  # noqa: F841
+            return nested()
+
+        def nested():
+            return log._find_logging_client()
+
+        with mock.patch.object(log.inspect, "stack") as stack:
+            self.assertEqual(log_from_client(), 42)
+            self.assertIsNone(nested())
+
+        stack.assert_not_called()
 
 
 class LoaderDispatchTest(unittest.TestCase):

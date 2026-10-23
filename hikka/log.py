@@ -424,25 +424,7 @@ class TelegramLogsHandler(logging.Handler):
                         )
 
     def emit(self, record: logging.LogRecord):
-        try:
-            caller = next(
-                (
-                    frame_info.frame.f_locals["_hikka_client_id_logging_tag"]
-                    for frame_info in inspect.stack()
-                    if isinstance(
-                        getattr(getattr(frame_info, "frame", None), "f_locals", {}).get(
-                            "_hikka_client_id_logging_tag"
-                        ),
-                        int,
-                    )
-                ),
-                False,
-            )
-
-            if not isinstance(caller, int):
-                caller = None
-        except Exception:
-            caller = None
+        caller = _find_logging_client()
 
         record.hikka_caller = caller
 
@@ -493,6 +475,27 @@ class TelegramLogsHandler(logging.Handler):
                 self.buffer = []
             finally:
                 self.release()
+
+
+def _find_logging_client() -> typing.Optional[int]:
+    """
+    Find the client which caused the log record, by the
+    _hikka_client_id_logging_tag local of a calling frame.
+    Walks the frames directly: inspect.stack() would also read source lines of
+    every frame, and this runs for every record, debug ones included
+    """
+    try:
+        frame = sys._getframe(1)
+        while frame is not None:
+            caller = frame.f_locals.get("_hikka_client_id_logging_tag")
+            if isinstance(caller, int):
+                return caller
+
+            frame = frame.f_back
+    except Exception:
+        pass
+
+    return None
 
 
 _main_formatter = logging.Formatter(
