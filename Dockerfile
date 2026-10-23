@@ -12,7 +12,7 @@ COPY requirements.txt ./requirements.txt
 
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --upgrade pip setuptools wheel \
-    && /opt/venv/bin/python -m pip install -r requirements.txt
+    && /opt/venv/bin/python -m pip install -r requirements.txt uvloop==0.22.1
 
 
 FROM python:3.11-slim-bookworm
@@ -28,6 +28,7 @@ ENV DOCKER=true \
     TMPDIR=/data/tmp \
     PYTHONPATH=/data/python \
     PYTHONUNBUFFERED=1 \
+    MALLOC_ARENA_MAX=2 \
     PYTHONDONTWRITEBYTECODE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

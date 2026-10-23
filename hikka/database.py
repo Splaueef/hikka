@@ -81,8 +81,9 @@ class Database(dict):
         self._client: CustomTelegramClient = client
         self._next_revision_call: int = 0
         # Serialized snapshots, so a revision isn't changed together with the
-        # nested dicts of the live database
-        self._revisions: typing.Deque[str] = collections.deque(maxlen=15)
+        # nested dicts of the live database. Each one is a copy of the whole
+        # database, so only a few are kept
+        self._revisions: typing.Deque[str] = collections.deque(maxlen=5)
         self._assets: int = None
         self._me: User = None
         self._redis: redis.Redis = None

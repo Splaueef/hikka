@@ -14,6 +14,10 @@
 - Serialize the database once per save: the same compact JSON is the serializability check, the file and the revision. Revisions are now real snapshots (they shared nested dicts with the live database) and keep the newest 15 instead of the oldest.
 - Request the channel admin log once per edited channel post instead of up to three times.
 - Censor a message once, though the command and the watcher handlers both get it.
+- Stop memory growth over uptime: inline forms, lists and galleries without a ttl now expire after 24 hours (they were never removed), entity caches drop records older than an hour, and buffered log records no longer keep message objects and traceback frames alive. Keep 5 database revisions instead of 15.
+- Copy cached entities shallowly (about 20 times faster than a deep copy).
+- Install uvloop in the Docker image and, when available, with install.sh; set MALLOC_ARENA_MAX=2 in the Docker image.
+- Update aiohttp to 3.14.4, GitPython to 3.2.1 and Werkzeug to 3.1.9 to fix known vulnerabilities.
 - Speed up per-message dispatching: cheap prefix check before censoring, watcher tags collected once, the command check done once per event.
 
 ## 🌑 Grand finale

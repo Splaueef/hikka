@@ -7,6 +7,7 @@
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
 import asyncio
+import contextlib
 import inspect
 import io
 import linecache
@@ -458,6 +459,7 @@ class TelegramLogsHandler(logging.Handler):
             else:
                 del self.buffer[0]
 
+        _lighten(record)
         self.buffer.append(record)
 
         if record.levelno >= self.lvl >= 0:
@@ -475,6 +477,34 @@ class TelegramLogsHandler(logging.Handler):
                 self.buffer = []
             finally:
                 self.release()
+
+
+_PLAIN_ARGS = (str, int, float, bool, type(None))
+
+
+def _lighten(record: logging.LogRecord):
+    """
+    Drop what a buffered record would keep alive: objects passed as arguments
+    (e.g. messages), and the frames of the traceback with all their locals.
+    The formatters use the rendered text instead
+    """
+    args = record.args
+    if args and not all(
+        isinstance(arg, _PLAIN_ARGS)
+        for arg in (args.values() if isinstance(args, dict) else args)
+    ):
+        with contextlib.suppress(Exception):
+            record.msg = record.getMessage()
+            record.args = None
+
+    if record.exc_info:
+        with contextlib.suppress(Exception):
+            if not record.exc_text:
+                record.exc_text = _main_formatter.formatException(record.exc_info)
+
+            record.exc_info = None
+
+    record.__dict__.pop("stack", None)
 
 
 def _find_logging_client() -> typing.Optional[int]:

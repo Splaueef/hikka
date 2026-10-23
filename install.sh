@@ -148,6 +148,8 @@ runin "$SUDO_CMD python$PYVER" -m pip install -r requirements.txt --upgrade --us
 	errorin "Requirements failed!"
 	exit 4
 }
+# A faster event loop. Optional: there is no wheel for every platform
+runin "$SUDO_CMD python$PYVER" -m pip install uvloop --upgrade --user --no-warn-script-location --disable-pip-version-check || true
 rm -f ../hikka-install.log
 touch .setup_complete
 
