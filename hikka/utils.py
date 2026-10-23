@@ -336,6 +336,12 @@ def censor(
     :param replace_with: String to replace with, {count} will be replaced with the number of characters
     :return: Censored object
     """
+    # The command and the watcher handlers censor the same message, so
+    # remember that the default censoring was already done
+    default = to_censor is None and replace_with == "redacted_{count}_chars"
+    if default and getattr(obj, "_hikka_censored", False):
+        return obj
+
     if to_censor is None:
         to_censor = ["phone"]
 
@@ -344,6 +350,10 @@ def censor(
             setattr(obj, k, replace_with.format(count=len(v)))
         elif k[0] != "_" and hasattr(v, "__dict__"):
             setattr(obj, k, censor(v, to_censor, replace_with))
+
+    if default:
+        with contextlib.suppress(AttributeError, TypeError):
+            obj._hikka_censored = True
 
     return obj
 
@@ -1271,7 +1281,8 @@ def is_serializable(x: typing.Any, /) -> bool:
     :return: True if object is JSON-serializable, False otherwise
     """
     try:
-        json.dumps(x)
+        # A circular reference still fails, with RecursionError
+        json.dumps(x, check_circular=False)
         return True
     except Exception:
         return False
