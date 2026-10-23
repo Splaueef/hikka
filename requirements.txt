@@ -1,4 +1,4 @@
-Telethon==1.44.0
+Telethon==1.45.0
 pyrofork==2.3.69
 aiofile==3.12.3
 gitpython==3.2.1
