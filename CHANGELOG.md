@@ -9,6 +9,9 @@
 - Update runtime dependencies and remove all vulnerabilities known to `pip-audit`.
 - Require Python 3.11 or newer and harden the production Docker image.
 - Add regression, dependency-audit, multi-version Python, and Docker CI checks.
+- Write the database at most once per second and atomically, instead of rewriting the whole file on every `db.set`.
+- Find the client of a log record without `inspect.stack()`, which made every log record (debug ones included) take about a millisecond.
+- Speed up per-message dispatching: cheap prefix check before censoring, watcher tags collected once, the command check done once per event.
 
 ## 🌑 Grand finale
 

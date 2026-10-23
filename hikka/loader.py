@@ -968,18 +968,17 @@ class Modules:
     def dispatch(self, _command: str) -> typing.Tuple[str, typing.Optional[str]]:
         """Dispatch command to appropriate module"""
 
-        return next(
-            (
-                (cmd, self.commands[cmd.lower()])
-                for cmd in [
-                    _command,
-                    self.aliases.get(_command.lower()),
-                    self.find_alias(_command),
-                ]
-                if cmd and cmd.lower() in self.commands
-            ),
-            (_command, None),
-        )
+        # find_alias scans every command, so try it only when the cheaper
+        # lookups don't match
+        for lookup in (
+            lambda: _command,
+            lambda: self.aliases.get(_command.lower()),
+            lambda: self.find_alias(_command),
+        ):
+            if (cmd := lookup()) and cmd.lower() in self.commands:
+                return cmd, self.commands[cmd.lower()]
+
+        return _command, None
 
     def send_config(self, skip_hook: bool = False):
         """Configure modules"""

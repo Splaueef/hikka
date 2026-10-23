@@ -5,11 +5,13 @@
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
 import asyncio
+import atexit
 import collections
 import json
 import logging
 import os
 import time
+import weakref
 
 try:
     import redis
@@ -47,6 +49,26 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# Seconds to wait before writing changes to the disk. Every ``set`` used to
+# serialize and rewrite the whole database while blocking the event loop, so a
+# module updating a counter on each message rewrote the file on each message.
+# Now a burst of changes is written once.
+SAVE_DELAY = 1
+
+_databases = weakref.WeakValueDictionary()
+
+
+def flush_all():
+    """Write pending changes of every database, e.g. before restart or exit"""
+    for db in list(_databases.values()):
+        try:
+            db.flush()
+        except Exception:
+            logger.exception("Database flush failed!")
+
+
+atexit.register(flush_all)
+
 
 class NoAssetsChannel(Exception):
     """Raised when trying to read/store asset with no asset channel present"""
@@ -64,6 +86,8 @@ class Database(dict):
         self._saving_task: asyncio.Future = None
         self._redis_key: str = None
         self._redis_legacy_key: str = None
+        self._save_handle: asyncio.TimerHandle = None
+        _databases[id(self)] = self
 
     def __repr__(self):
         return object.__repr__(self)
@@ -195,7 +219,31 @@ class Database(dict):
         return True
 
     def save(self) -> bool:
-        """Save database"""
+        """Save database. Inside the event loop the write is deferred by SAVE_DELAY"""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return self._save_now()
+
+        if self._save_handle is None:
+            self._save_handle = loop.call_later(SAVE_DELAY, self.flush)
+
+        return True
+
+    def flush(self) -> bool:
+        """Write pending changes immediately"""
+        if self._save_handle is None:
+            return True
+
+        self._save_handle.cancel()
+        self._save_handle = None
+        try:
+            return self._save_now()
+        except RuntimeError:
+            logger.exception("Database save failed!")
+            return False
+
+    def _save_now(self) -> bool:
         if not self.process_db_autofix(self):
             try:
                 rev = self._revisions.pop()
@@ -223,17 +271,46 @@ class Database(dict):
             self._revisions.pop()
 
         if self._redis:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # No loop to publish from (e.g. at exit), so publish right away
+                try:
+                    self._redis_save_sync()
+                except Exception:
+                    logger.exception("Database save failed!")
+                    return False
+                return True
+
             if not self._saving_task:
                 self._saving_task = asyncio.ensure_future(self._redis_save())
             return True
 
         try:
-            self._db_file.write_text(json.dumps(self, indent=4))
+            self._write_file(json.dumps(self, indent=4))
         except Exception:
             logger.exception("Database save failed!")
             return False
 
         return True
+
+    def _write_file(self, payload: str):
+        # Write a temporary file first, so a crash or a full disk during the
+        # write can't leave a truncated database behind
+        tmp = self._db_file.with_name(f"{self._db_file.name}.tmp")
+        try:
+            tmp.write_text(payload)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
+
+        try:
+            os.replace(tmp, self._db_file)
+        except OSError:
+            # The database file itself may be a bind mount, which can't be
+            # replaced, so fall back to writing it in place
+            tmp.unlink(missing_ok=True)
+            self._db_file.write_text(payload)
 
     async def store_asset(self, message: Message) -> int:
         """

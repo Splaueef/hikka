@@ -32,6 +32,7 @@ import re
 import sys
 import traceback
 import typing
+import weakref
 
 from telethon import events
 from telethon.errors import FloodWaitError, RPCError
@@ -91,6 +92,108 @@ ALL_TAGS = [
     "alias",
     "aliases",
 ]
+
+# Built once instead of on every message
+LAYOUT_SWITCH = str.maketrans(ru_keys + en_keys, en_keys + ru_keys)
+
+
+def _get_chat_id_tag(func) -> int:
+    return (
+        func.chat_id
+        if not str(func.chat_id).startswith("-100")
+        else int(str(func.chat_id)[4:])
+    )
+
+
+# Checks of watcher tags, called with the message and the watcher. A tag fails
+# when its check returns a falsy value. Defined once at import time, so
+# checking a watcher doesn't create a closure for every tag
+TAG_CHECKS = {
+    "out": lambda m, func: getattr(m, "out", True),
+    "in": lambda m, func: not getattr(m, "out", True),
+    "only_messages": lambda m, func: isinstance(m, Message),
+    "editable": (
+        lambda m, func: not getattr(m, "out", False)
+        and not getattr(m, "fwd_from", False)
+        and not getattr(m, "sticker", False)
+        and not getattr(m, "via_bot_id", False)
+    ),
+    "no_media": lambda m, func: (
+        not isinstance(m, Message) or not getattr(m, "media", False)
+    ),
+    "only_media": lambda m, func: (
+        isinstance(m, Message) and getattr(m, "media", False)
+    ),
+    "only_photos": lambda m, func: utils.mime_type(m).startswith("image/"),
+    "only_videos": lambda m, func: utils.mime_type(m).startswith("video/"),
+    "only_audios": lambda m, func: utils.mime_type(m).startswith("audio/"),
+    "only_docs": lambda m, func: getattr(m, "document", False),
+    "only_stickers": lambda m, func: getattr(m, "sticker", False),
+    "only_inline": lambda m, func: getattr(m, "via_bot_id", False),
+    "only_channels": lambda m, func: (
+        getattr(m, "is_channel", False) and not getattr(m, "is_group", False)
+    ),
+    "only_groups": (
+        lambda m, func: getattr(m, "is_group", False)
+        or not getattr(m, "private", False)
+        and not getattr(m, "is_channel", False)
+    ),
+    "only_pm": lambda m, func: getattr(m, "private", False),
+    "no_pm": lambda m, func: not getattr(m, "private", False),
+    "no_channels": lambda m, func: not getattr(m, "is_channel", False),
+    "no_groups": (
+        lambda m, func: not getattr(m, "is_group", False)
+        or getattr(m, "private", False)
+        or getattr(m, "is_channel", False)
+    ),
+    "no_inline": lambda m, func: not getattr(m, "via_bot_id", False),
+    "no_stickers": lambda m, func: not getattr(m, "sticker", False),
+    "no_docs": lambda m, func: not getattr(m, "document", False),
+    "no_audios": lambda m, func: not utils.mime_type(m).startswith("audio/"),
+    "no_videos": lambda m, func: not utils.mime_type(m).startswith("video/"),
+    "no_photos": lambda m, func: not utils.mime_type(m).startswith("image/"),
+    "no_forwards": lambda m, func: not getattr(m, "fwd_from", False),
+    "no_reply": lambda m, func: not getattr(m, "reply_to_msg_id", False),
+    "no_mention": lambda m, func: not getattr(m, "mentioned", False),
+    "mention": lambda m, func: getattr(m, "mentioned", False),
+    "only_reply": lambda m, func: getattr(m, "reply_to_msg_id", False),
+    "only_forwards": lambda m, func: getattr(m, "fwd_from", False),
+    "startswith": lambda m, func: (
+        isinstance(m, Message) and m.raw_text.startswith(func.startswith)
+    ),
+    "endswith": lambda m, func: (
+        isinstance(m, Message) and m.raw_text.endswith(func.endswith)
+    ),
+    "contains": lambda m, func: (
+        isinstance(m, Message) and func.contains in m.raw_text
+    ),
+    "regex": lambda m, func: (
+        isinstance(m, Message) and re.search(func.regex, m.raw_text)
+    ),
+    "filter": lambda m, func: callable(func.filter) and func.filter(m),
+    "from_id": lambda m, func: getattr(m, "sender_id", None) == func.from_id,
+    "chat_id": lambda m, func: utils.get_chat_id(m) == _get_chat_id_tag(func),
+}
+
+_tag_checks_cache = weakref.WeakKeyDictionary()
+
+
+def _get_tag_checks(func: callable) -> typing.Tuple[typing.Tuple[str, callable], ...]:
+    """Tags set on the handler with their checks, collected once per handler"""
+    key = getattr(func, "__func__", func)
+    try:
+        return _tag_checks_cache[key]
+    except (KeyError, TypeError):
+        pass
+
+    checks = tuple(
+        (tag, check) for tag, check in TAG_CHECKS.items() if getattr(func, tag, False)
+    )
+
+    with contextlib.suppress(TypeError):
+        _tag_checks_cache[key] = checks
+
+    return checks
 
 
 def _decrement_ratelimit(delay, data, key, severity):
@@ -273,12 +376,20 @@ class CommandDispatcher:
         if not hasattr(event, "message") or not hasattr(event.message, "message"):
             return False
 
-        prefix = self._db.get(main.__name__, "command_prefix", False) or "."
-        change = str.maketrans(ru_keys + en_keys, en_keys + ru_keys)
-        message = utils.censor(event.message)
-
         if not event.message.message:
             return False
+
+        prefix = self._db.get(main.__name__, "command_prefix", False) or "."
+        change = LAYOUT_SWITCH
+
+        # Most messages are not commands, so skip them before the costly
+        # censoring of the whole message object
+        if not event.message.message.startswith(
+            (prefix, str.translate(prefix, change))
+        ):
+            return False
+
+        message = utils.censor(event.message)
 
         if (
             message.out
@@ -518,101 +629,38 @@ class CommandDispatcher:
         self,
         event: typing.Union[events.NewMessage, events.MessageDeleted],
         func: callable,
+        command_cache: typing.Optional[dict] = None,
     ) -> str:
         """
         Handle tags.
         :param event: The event to handle.
         :param func: The function to handle.
+        :param command_cache: Dict to remember whether the event is a command,
+            shared by all watchers of one event
         :return: The reason for the tag to fail.
         """
         m = event if isinstance(event, Message) else getattr(event, "message", event)
 
-        reverse_mapping = {
-            "out": lambda: getattr(m, "out", True),
-            "in": lambda: not getattr(m, "out", True),
-            "only_messages": lambda: isinstance(m, Message),
-            "editable": (
-                lambda: not getattr(m, "out", False)
-                and not getattr(m, "fwd_from", False)
-                and not getattr(m, "sticker", False)
-                and not getattr(m, "via_bot_id", False)
-            ),
-            "no_media": lambda: (
-                not isinstance(m, Message) or not getattr(m, "media", False)
-            ),
-            "only_media": lambda: isinstance(m, Message) and getattr(m, "media", False),
-            "only_photos": lambda: utils.mime_type(m).startswith("image/"),
-            "only_videos": lambda: utils.mime_type(m).startswith("video/"),
-            "only_audios": lambda: utils.mime_type(m).startswith("audio/"),
-            "only_stickers": lambda: getattr(m, "sticker", False),
-            "only_docs": lambda: getattr(m, "document", False),
-            "only_inline": lambda: getattr(m, "via_bot_id", False),
-            "only_channels": lambda: (
-                getattr(m, "is_channel", False) and not getattr(m, "is_group", False)
-            ),
-            "no_channels": lambda: not getattr(m, "is_channel", False),
-            "no_groups": (
-                lambda: not getattr(m, "is_group", False)
-                or getattr(m, "private", False)
-                or getattr(m, "is_channel", False)
-            ),
-            "only_groups": (
-                lambda: getattr(m, "is_group", False)
-                or not getattr(m, "private", False)
-                and not getattr(m, "is_channel", False)
-            ),
-            "no_pm": lambda: not getattr(m, "private", False),
-            "only_pm": lambda: getattr(m, "private", False),
-            "no_inline": lambda: not getattr(m, "via_bot_id", False),
-            "no_stickers": lambda: not getattr(m, "sticker", False),
-            "no_docs": lambda: not getattr(m, "document", False),
-            "no_audios": lambda: not utils.mime_type(m).startswith("audio/"),
-            "no_videos": lambda: not utils.mime_type(m).startswith("video/"),
-            "no_photos": lambda: not utils.mime_type(m).startswith("image/"),
-            "no_forwards": lambda: not getattr(m, "fwd_from", False),
-            "no_reply": lambda: not getattr(m, "reply_to_msg_id", False),
-            "only_forwards": lambda: getattr(m, "fwd_from", False),
-            "only_reply": lambda: getattr(m, "reply_to_msg_id", False),
-            "mention": lambda: getattr(m, "mentioned", False),
-            "no_mention": lambda: not getattr(m, "mentioned", False),
-            "startswith": lambda: (
-                isinstance(m, Message) and m.raw_text.startswith(func.startswith)
-            ),
-            "endswith": lambda: (
-                isinstance(m, Message) and m.raw_text.endswith(func.endswith)
-            ),
-            "contains": lambda: isinstance(m, Message) and func.contains in m.raw_text,
-            "filter": lambda: callable(func.filter) and func.filter(m),
-            "from_id": lambda: getattr(m, "sender_id", None) == func.from_id,
-            "chat_id": lambda: utils.get_chat_id(m) == (
-                func.chat_id
-                if not str(func.chat_id).startswith("-100")
-                else int(str(func.chat_id)[4:])
-            ),
-            "regex": lambda: (
-                isinstance(m, Message) and re.search(func.regex, m.raw_text)
-            ),
-        }
+        no_commands = getattr(func, "no_commands", False)
+        only_commands = getattr(func, "only_commands", False)
+        if no_commands or only_commands:
+            if command_cache is None:
+                command_cache = {}
 
-        return (
-            "no_commands"
-            if getattr(func, "no_commands", False)
-            and await self._handle_command(event, watcher=True)
-            else (
-                "only_commands"
-                if getattr(func, "only_commands", False)
-                and not await self._handle_command(event, watcher=True)
-                else next(
-                    (
-                        tag
-                        for tag in ALL_TAGS
-                        if getattr(func, tag, False)
-                        and tag in reverse_mapping
-                        and not reverse_mapping[tag]()
-                    ),
-                    None,
+            if "is_command" not in command_cache:
+                command_cache["is_command"] = bool(
+                    await self._handle_command(event, watcher=True)
                 )
-            )
+
+            if no_commands and command_cache["is_command"]:
+                return "no_commands"
+
+            if only_commands and not command_cache["is_command"]:
+                return "only_commands"
+
+        return next(
+            (tag for tag, check in _get_tag_checks(func) if not check(m, func)),
+            None,
         )
 
     async def handle_incoming(
@@ -626,22 +674,28 @@ class CommandDispatcher:
         whitelist_chats = self._db.get(main.__name__, "whitelist_chats", [])
         whitelist_modules = self._db.get(main.__name__, "whitelist_modules", [])
 
-        if utils.get_chat_id(message) in blacklist_chats or (
-            whitelist_chats and utils.get_chat_id(message) not in whitelist_chats
+        chat_id = utils.get_chat_id(message)
+        if chat_id in blacklist_chats or (
+            whitelist_chats and chat_id not in whitelist_chats
         ):
             logger.debug("Message is blacklisted")
             return
 
+        bl = self._db.get(main.__name__, "disabled_watchers", {})
+        is_message = isinstance(message, Message)
+        command_cache = {}
+        placeholders_set = False
+
         for func in self._modules.watchers:
-            bl = self._db.get(main.__name__, "disabled_watchers", {})
             modname = str(func.__self__.__class__.strings["name"])
+            module_key = f"{chat_id}.{func.__self__.__module__}"
 
             if (
                 modname in bl
-                and isinstance(message, Message)
+                and is_message
                 and (
                     "*" in bl[modname]
-                    or utils.get_chat_id(message) in bl[modname]
+                    or chat_id in bl[modname]
                     or "only_chats" in bl[modname]
                     and message.is_private
                     or "only_pm" in bl[modname]
@@ -651,28 +705,34 @@ class CommandDispatcher:
                     or "in" in bl[modname]
                     and message.out
                 )
-                or f"{str(utils.get_chat_id(message))}.{func.__self__.__module__}"
-                in blacklist_chats
+                or module_key in blacklist_chats
                 or whitelist_modules
-                and f"{str(utils.get_chat_id(message))}.{func.__self__.__module__}"
-                not in whitelist_modules
-                or await self._handle_tags(event, func)
+                and module_key not in whitelist_modules
             ):
+                logger.debug(
+                    "Ignored watcher of module %s because it is disabled in this chat",
+                    modname,
+                )
+                continue
+
+            if reason := await self._handle_tags_ext(event, func, command_cache):
                 logger.debug(
                     "Ignored watcher of module %s because of %s",
                     modname,
-                    await self._handle_tags_ext(event, func),
+                    reason,
                 )
                 continue
 
             # Avoid weird AttributeErrors in weird dochub modules by settings placeholder
             # of attributes
-            for placeholder in {"text", "raw_text", "out"}:
-                try:
-                    if not hasattr(message, placeholder):
-                        setattr(message, placeholder, "")
-                except UnicodeDecodeError:
-                    pass
+            if not placeholders_set:
+                placeholders_set = True
+                for placeholder in {"text", "raw_text", "out"}:
+                    try:
+                        if not hasattr(message, placeholder):
+                            setattr(message, placeholder, "")
+                    except UnicodeDecodeError:
+                        pass
 
             # Run watcher via ensure_future so in case user has a lot
             # of watchers with long actions, they can run simultaneously
