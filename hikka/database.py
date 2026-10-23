@@ -7,6 +7,7 @@
 import asyncio
 import atexit
 import collections
+import contextlib
 import json
 import logging
 import os
@@ -79,7 +80,10 @@ class Database(dict):
         super().__init__()
         self._client: CustomTelegramClient = client
         self._next_revision_call: int = 0
-        self._revisions: typing.List[dict] = []
+        # Serialized snapshots, so a revision isn't changed together with the
+        # nested dicts of the live database. Each one is a copy of the whole
+        # database, so only a few are kept
+        self._revisions: typing.Deque[str] = collections.deque(maxlen=5)
         self._assets: int = None
         self._me: User = None
         self._redis: redis.Redis = None
@@ -180,8 +184,8 @@ class Database(dict):
         except FileNotFoundError:
             logger.debug("Database file not found, creating new one...")
 
-    def process_db_autofix(self, db: dict) -> bool:
-        if not utils.is_serializable(db):
+    def process_db_autofix(self, db: dict, check_serializable: bool = True) -> bool:
+        if check_serializable and not utils.is_serializable(db):
             return False
 
         for key, value in db.copy().items():
@@ -244,11 +248,17 @@ class Database(dict):
             return False
 
     def _save_now(self) -> bool:
-        if not self.process_db_autofix(self):
+        self.process_db_autofix(self, check_serializable=False)
+
+        # Serializing doubles as the check that the database is serializable,
+        # and the result is reused for the file and the revision
+        payload = None
+        with contextlib.suppress(Exception):
+            payload = json.dumps(self, check_circular=False)
+
+        if payload is None:
             try:
-                rev = self._revisions.pop()
-                while not self.process_db_autofix(rev):
-                    rev = self._revisions.pop()
+                rev = json.loads(self._revisions.pop())
             except IndexError:
                 raise RuntimeError(
                     "Can't find revision to restore broken database from "
@@ -264,11 +274,8 @@ class Database(dict):
             )
 
         if self._next_revision_call < time.time():
-            self._revisions += [dict(self)]
+            self._revisions.append(payload)
             self._next_revision_call = time.time() + 3
-
-        while len(self._revisions) > 15:
-            self._revisions.pop()
 
         if self._redis:
             try:
@@ -287,7 +294,7 @@ class Database(dict):
             return True
 
         try:
-            self._write_file(json.dumps(self, indent=4))
+            self._write_file(payload)
         except Exception:
             logger.exception("Database save failed!")
             return False

@@ -92,8 +92,15 @@ class InlineManager(
     async def _cleaner(self):
         """Cleans outdated inline units"""
         while True:
+            now = time.time()
             for unit_id, unit in self._units.copy().items():
-                if (unit.get("ttl") or (time.time() + self._markup_ttl)) < time.time():
+                # A unit without its own ttl lives for _markup_ttl since it was
+                # first seen here; before, such units were never removed and
+                # kept every form, list and gallery in memory
+                expires = unit.get("ttl") or unit.setdefault(
+                    "_hikka_expires", now + self._markup_ttl
+                )
+                if expires < now:
                     del self._units[unit_id]
 
             await asyncio.sleep(5)

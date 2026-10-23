@@ -22,6 +22,7 @@
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
+import contextlib
 import logging
 import time
 import typing
@@ -359,6 +360,33 @@ class SecurityManager:
 
         return False
 
+    async def get_channel_editor(self, message: Message) -> typing.Optional[int]:
+        """
+        Gets the ID of the admin, who made the latest edit of the channel post.
+        The admin log is requested once per message: the ratelimit, the
+        security check and the dispatcher all need it for the same message
+
+        :param message: Edited channel post
+        :return: Admin ID or None if the edit is not in the recent admin log
+        """
+        with contextlib.suppress(AttributeError):
+            return message._hikka_channel_editor
+
+        editor = None
+        async for event in self._client.iter_admin_log(
+            utils.get_chat_id(message),
+            limit=10,
+            edit=True,
+        ):
+            if event.action.prev_message.id == message.id:
+                editor = event.user_id
+                break
+
+        with contextlib.suppress(AttributeError, TypeError):
+            message._hikka_channel_editor = editor
+
+        return editor
+
     async def check(
         self,
         message: typing.Optional[Message],
@@ -394,14 +422,9 @@ class SecurityManager:
             and not message.is_group
             and message.edit_date
         ):
-            async for event in self._client.iter_admin_log(
-                utils.get_chat_id(message),
-                limit=10,
-                edit=True,
-            ):
-                if event.action.prev_message.id == message.id:
-                    user_id = event.user_id
-                    is_channel = True
+            if (editor := await self.get_channel_editor(message)) is not None:
+                user_id = editor
+                is_channel = True
 
         if (
             user_id == self._client.tg_id
