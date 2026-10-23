@@ -52,6 +52,11 @@ def restart():
 
     print("🔄 Restarting...")
 
+    # The new process is started via execl, which skips atexit handlers, so
+    # write pending database changes now
+    if database := sys.modules.get(f"{__package__}.database"):
+        database.flush_all()
+
     if "LAVHOST" in os.environ:
         os.system("lavhost restart")
         return
