@@ -32,7 +32,12 @@ for mod in os.scandir(DEBUG_MODS_DIR):
 class TestMod(loader.Module):
     """Perform operations based on userbot self-testing"""
 
-    strings = {"name": "Tester"}
+    strings = {
+        "name": "Tester",
+        "ping_fast": "🟢 fast",
+        "ping_normal": "🟡 normal",
+        "ping_slow": "🔴 slow",
+    }
 
     def __init__(self):
         self._memory = {}
@@ -351,11 +356,17 @@ class TestMod(loader.Module):
         start = time.perf_counter_ns()
         message = await utils.answer(message, "🌘")
 
+        ping = round((time.perf_counter_ns() - start) / 10**6, 3)
+        quality = (
+            "ping_fast" if ping < 150 else "ping_normal" if ping < 400 else "ping_slow"
+        )
         await utils.answer(
             message,
+            # Translations without the third placeholder simply ignore it
             self.strings("results_ping").format(
-                round((time.perf_counter_ns() - start) / 10**6, 3),
+                ping,
                 utils.formatted_uptime(),
+                self.strings(quality),
             )
             + (
                 ("\n\n" + self.strings("ping_hint"))

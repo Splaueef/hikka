@@ -925,9 +925,10 @@ class LoaderMod(loader.Module):
 
             if instance.__doc__:
                 modhelp += (
-                    "<i>\n<emoji document_id=5787544344906959608>ℹ️</emoji>"
-                    f" {utils.escape_html(inspect.getdoc(instance))}</i>\n"
+                    "\n<i><emoji document_id=5787544344906959608>ℹ️</emoji>"
+                    f" {utils.escape_html(inspect.getdoc(instance))}</i>"
                 )
+            docs_end = len(modhelp)
 
             subscribe = ""
             subscribe_markup = None
@@ -1057,6 +1058,15 @@ class LoaderMod(loader.Module):
                             else self.strings("undoc")
                         ),
                     )
+
+            # Commands go into a quote, collapsed when the module has many of them
+            if commands_part := modhelp[docs_end:].strip("\n"):
+                tag = (
+                    "<blockquote expandable>"
+                    if commands_part.count("\n") >= 6
+                    else "<blockquote>"
+                )
+                modhelp = f"{modhelp[:docs_end]}\n{tag}{commands_part}</blockquote>"
 
             try:
                 await utils.answer(message, loaded_msg(), reply_markup=subscribe_markup)
