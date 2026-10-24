@@ -22,7 +22,14 @@ logger = logging.getLogger(__name__)
 class Help(loader.Module):
     """Показує довідку для модулів і команд."""
 
-    strings = {"name": "Help"}
+    strings = {
+        "name": "Help",
+        "core_header": "🛠 <b>Built-in</b> · {}",
+        "user_header": "🧩 <b>Installed</b> · {}",
+        "dragon_header": "🐉 <b>Dragon</b> · {}",
+        "empty_header": "🙈 <b>Without commands</b> · {}",
+        "help_footer": "<i>💡 {prefix}help &lt;module&gt; — commands and their description</i>",
+    }
 
     def __init__(self):
         self.config = loader.ModuleConfig(
@@ -81,6 +88,13 @@ class Help(loader.Module):
                 "\n".join([f"👁 <i>{m}</i>" for m in shown]),
             ),
         )
+
+    @staticmethod
+    def _section(header: str, items: list, expandable: bool) -> str:
+        """Render one titled block of the module list as a (collapsible) quote."""
+        body = "".join(items).strip("\n")
+        tag = "<blockquote expandable>" if expandable else "<blockquote>"
+        return f"\n\n{header}\n{tag}{body}</blockquote>"
 
     def find_aliases(self, command: str) -> list:
         """Знаходить псевдоніми (аліаси) для команди."""
@@ -152,10 +166,12 @@ class Help(loader.Module):
         )
         if module.__doc__:
             reply += (
-                "<i>\n<emoji document_id=5787544344906959608>ℹ️</emoji> "
+                "\n<blockquote><emoji document_id=5787544344906959608>ℹ️</emoji> <i>"
                 + utils.escape_html(inspect.getdoc(module))
-                + "\n</i>"
+                + "</i></blockquote>"
             )
+        else:
+            reply += "\n"
 
         commands = (
             module.commands
@@ -356,11 +372,27 @@ class Help(loader.Module):
         no_commands_.sort(key=lambda x: x.split()[1])
         dragon_.sort()
 
+        # Installed modules come first: they are what the owner looks for most
+        # often, while the long list of built-in ones stays collapsed.
+        sections = "".join(
+            self._section(self.strings(key).format(len(items)), items, expandable)
+            for key, items, expandable in (
+                ("user_header", plain_, len(plain_) > 15),
+                ("dragon_header", dragon_, len(dragon_) > 15),
+                ("core_header", core_, True),
+                ("empty_header", no_commands_ if force else [], True),
+            )
+            if items
+        )
+
         await utils.answer(
             message,
-            "{}\n{}{}".format(
+            "{}{}\n\n{}{}".format(
                 reply,
-                "".join(core_ + plain_ + dragon_ + (no_commands_ if force else [])),
+                sections,
+                self.strings("help_footer").format(
+                    prefix=utils.escape_html(self.get_prefix())
+                ),
                 (
                     ""
                     if self.lookup("Loader").fully_loaded

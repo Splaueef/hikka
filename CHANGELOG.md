@@ -18,6 +18,9 @@
 - Copy cached entities shallowly (about 20 times faster than a deep copy).
 - Install uvloop in the Docker image and, when available, with install.sh; set MALLOC_ARENA_MAX=2 in the Docker image.
 - Update aiohttp to 3.14.4, GitPython to 3.2.1 and Werkzeug to 3.1.9 to fix known vulnerabilities.
+- Redesign `.help`: installed modules come first, built-in ones are in a collapsible quote, every section shows how many modules it has, and a hint explains `.help <module>`. Module help shows its description as a quote.
+- Redesign `.info`: owner/version, prefix/uptime/modules and CPU/RAM are grouped into quotes; it now shows the number of modules and the Python version, also available as `{modules}` and `{python}` in a custom info message.
+- `.info` no longer fails when the account name contains `{` or `}`.
 - Speed up per-message dispatching: cheap prefix check before censoring, watcher tags collected once, the command check done once per event.
 
 ## 🌑 Grand finale

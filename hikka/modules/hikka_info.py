@@ -4,6 +4,8 @@
 # You can redistribute it and/or modify it under the terms of the GNU AGPLv3
 # 🔑 https://www.gnu.org/licenses/agpl-3.0.html
 
+import platform as _platform
+
 import git
 from telethon.tl.types import Message
 from telethon.utils import get_display_name
@@ -12,11 +14,16 @@ from .. import loader, utils, version
 from ..inline.types import InlineQuery
 
 
+def _braces(value) -> str:
+    """Escape a value inlined into a template that is .format()-ed later."""
+    return str(value).replace("{", "{{").replace("}", "}}")
+
+
 @loader.tds
 class HikkaInfoMod(loader.Module):
     """Показує інформацію про юзербота."""
 
-    strings = {"name": "HikkaInfo"}
+    strings = {"name": "HikkaInfo", "modules": "Modules"}
 
     def __init__(self):
         self.config = loader.ModuleConfig(
@@ -60,6 +67,8 @@ class HikkaInfoMod(loader.Module):
         prefix = f"«<code>{utils.escape_html(self.get_prefix())}</code>»"
 
         platform = utils.get_named_platform()
+        modules = len(self.allmodules.modules)
+        python = _platform.python_version()
 
         for emoji, icon in [
             ("🍊", "<emoji document_id=5449599833973203438>🧡</emoji>"),
@@ -93,20 +102,25 @@ class HikkaInfoMod(loader.Module):
                 cpu_usage=utils.get_cpu_usage(),
                 ram_usage=f"{utils.get_ram_usage()} MB",
                 branch=version.branch,
+                modules=modules,
+                python=python,
             )
             if self.config["custom_message"]
             else (
-                f'<b>{{}}</b>\n\n<b>{{}} {self.strings("owner")}:</b> {me}\n\n<b>{{}}'
-                f' {self.strings("version")}:</b> {_version} {build}\n<b>{{}}'
-                f' {self.strings("branch")}:'
-                f"</b> <code>{version.branch}</code>\n{upd}\n\n<b>{{}}"
-                f' {self.strings("prefix")}:</b> {prefix}\n<b>{{}}'
-                f' {self.strings("uptime")}:'
-                f"</b> {utils.formatted_uptime()}\n\n<b>{{}}"
-                f' {self.strings("cpu_usage")}:'
-                f"</b> <i>~{utils.get_cpu_usage()} %</i>\n<b>{{}}"
-                f' {self.strings("ram_usage")}:'
-                f"</b> <i>~{utils.get_ram_usage()} MB</i>\n<b>{{}}</b>"
+                "<b>{}</b>\n"
+                f"<blockquote><b>{{}} {self.strings('owner')}:</b> {_braces(me)}\n"
+                f"<b>{{}} {self.strings('version')}:</b> {_version} {_braces(build)}\n"
+                f"<b>{{}} {self.strings('branch')}:</b>"
+                f" <code>{_braces(version.branch)}</code>"
+                f"{chr(10) + _braces(upd) if upd else ''}</blockquote>\n"
+                f"<blockquote><b>{{}} {self.strings('prefix')}:</b> {_braces(prefix)}\n"
+                f"<b>{{}} {self.strings('uptime')}:</b> {utils.formatted_uptime()}\n"
+                f"<b>🧩 {self.strings('modules')}:</b> {modules} · 🐍 {python}</blockquote>\n"
+                f"<blockquote><b>{{}} {self.strings('cpu_usage')}:</b>"
+                f" <i>~{utils.get_cpu_usage()} %</i>\n"
+                f"<b>{{}} {self.strings('ram_usage')}:</b>"
+                f" <i>~{utils.get_ram_usage()} MB</i></blockquote>\n"
+                "<b>{}</b>"
             ).format(
                 *map(
                     lambda x: utils.remove_html(x) if inline else x,
