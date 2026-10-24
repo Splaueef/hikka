@@ -21,6 +21,10 @@
 - Redesign `.help`: installed modules come first, built-in ones are in a collapsible quote, every section shows how many modules it has, and a hint explains `.help <module>`. Module help shows its description as a quote.
 - Redesign `.info`: owner/version, prefix/uptime/modules and CPU/RAM are grouped into quotes; it now shows the number of modules and the Python version, also available as `{modules}` and `{python}` in a custom info message.
 - `.info` no longer fails when the account name contains `{` or `}`.
+- After `.dlmod`/`.loadmod` the command list of the loaded module is shown as a quote, collapsed when it is long.
+- `.ping` shows whether the response time is fast, normal or slow.
+- `.config`: the option list of a module is a collapsible quote, and an option shows its description and default/current values as quotes.
+- Restart messages and the `.settings` menu got a cleaner layout.
 - Speed up per-message dispatching: cheap prefix check before censoring, watcher tags collected once, the command check done once per event.
 
 ## 🌑 Grand finale
